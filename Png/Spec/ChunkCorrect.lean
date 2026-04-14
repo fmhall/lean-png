@@ -105,15 +105,86 @@ theorem serialize_size (c : PngChunk) :
   simp only [ByteArray.size, Array.size, List.length]
   omega
 
+/-! ## IHDR roundtrip helpers -/
+
+private theorem ByteArray_getElem!_eq_getElem (ba : ByteArray) (i : Nat) (h : i < ba.size) :
+    ba[i]! = ba[i] := by
+  simp only [GetElem?.getElem!, decidableGetElem?, h, ↓reduceDIte]
+
+private theorem ihdr_prefix_size (ihdr : IHDRInfo) :
+    (writeUInt32BE ihdr.width ++ writeUInt32BE ihdr.height).size = 8 := by
+  rw [ByteArray.size_append]; simp only [writeUInt32BE, ByteArray.size, Array.size, List.length]
+
+private theorem ihdr_toBytes_tail (ihdr : IHDRInfo) (k : Nat) (hk : 8 ≤ k) (hk2 : k < 13) :
+    ihdr.toBytes[k]! =
+      (ByteArray.mk #[ihdr.bitDepth, ihdr.colorType.toUInt8, ihdr.compressionMethod,
+        ihdr.filterMethod, ihdr.interlaceMethod.toUInt8])[k - 8]'(by
+        simp only [ByteArray.size, Array.size, List.length]; omega) := by
+  rw [ByteArray_getElem!_eq_getElem _ _ (by
+    simp only [IHDRInfo.toBytes, writeUInt32BE]
+    simp only [ByteArray.size_append]
+    simp only [ByteArray.size, Array.size, List.length]; omega)]
+  simp only [IHDRInfo.toBytes]
+  rw [ByteArray.getElem_append_right (by rw [ihdr_prefix_size]; omega)]
+  simp only [ihdr_prefix_size]
+
+private theorem ihdr_read_width (ihdr : IHDRInfo) :
+    readUInt32BE ihdr.toBytes 0 = ihdr.width := by
+  simp only [IHDRInfo.toBytes, ByteArray.append_assoc]
+  exact readUInt32BE_writeUInt32BE_append _ _
+
+private theorem ihdr_read_height (ihdr : IHDRInfo) :
+    readUInt32BE ihdr.toBytes 4 = ihdr.height := by
+  simp only [IHDRInfo.toBytes, ByteArray.append_assoc]
+  rw [show (4 : Nat) = (writeUInt32BE ihdr.width).size from (writeUInt32BE_size _).symm]
+  rw [readUInt32BE_append_at_size _ _ (by
+    rw [ByteArray.size_append, writeUInt32BE_size, ByteArray.size, Array.size, List.length]; omega)]
+  exact readUInt32BE_writeUInt32BE_append _ _
+
 /-! ## IHDR roundtrip -/
 
+set_option maxHeartbeats 6400000 in
 /-- Parsing serialized IHDR bytes recovers the original IHDR,
     provided the IHDR has valid field values. -/
 theorem ihdr_fromBytes_toBytes (ihdr : IHDRInfo)
     (hw : ihdr.width ≠ 0) (hh : ihdr.height ≠ 0)
     (hc : ihdr.compressionMethod = 0) (hf : ihdr.filterMethod = 0) :
     IHDRInfo.fromBytes ihdr.toBytes = .ok ihdr := by
-  sorry
+  unfold IHDRInfo.fromBytes
+  -- Size check: toBytes.size = 13, so (13 != 13) = false
+  simp only [show ihdr.toBytes.size = 13 from by
+    simp only [IHDRInfo.toBytes, writeUInt32BE]; simp only [ByteArray.size_append];
+    simp only [ByteArray.size, Array.size, List.length],
+    bne_self_eq_false, Bool.false_eq_true, ↓reduceIte]
+  -- Width check: readUInt32BE toBytes 0 = width ≠ 0
+  simp only [ihdr_read_width, beq_iff_eq, hw, ↓reduceIte]
+  -- Height check
+  simp only [ihdr_read_height, hh, ↓reduceIte]
+  -- ColorType roundtrip
+  simp only [show ihdr.toBytes[9]! = ihdr.colorType.toUInt8 from by
+    have := ihdr_toBytes_tail ihdr 9 (by omega) (by omega); simpa using this]
+  simp only [show ColorType.ofUInt8 ihdr.colorType.toUInt8 = some ihdr.colorType from by
+    cases ihdr.colorType <;> rfl]
+  -- Compression method check: toBytes[10]! = compressionMethod = 0
+  simp only [show ihdr.toBytes[10]! = ihdr.compressionMethod from by
+    have := ihdr_toBytes_tail ihdr 10 (by omega) (by omega); simpa using this,
+    hc, bne_self_eq_false, Bool.false_eq_true, ↓reduceIte]
+  -- Filter method check
+  simp only [show ihdr.toBytes[11]! = ihdr.filterMethod from by
+    have := ihdr_toBytes_tail ihdr 11 (by omega) (by omega); simpa using this,
+    hf, bne_self_eq_false, Bool.false_eq_true, ↓reduceIte]
+  -- Interlace method roundtrip
+  simp only [show ihdr.toBytes[12]! = ihdr.interlaceMethod.toUInt8 from by
+    have := ihdr_toBytes_tail ihdr 12 (by omega) (by omega); simpa using this]
+  simp only [show InterlaceMethod.ofUInt8 ihdr.interlaceMethod.toUInt8 = some ihdr.interlaceMethod from by
+    cases ihdr.interlaceMethod <;> rfl]
+  -- Bit depth and final structure
+  simp only [show ihdr.toBytes[8]! = ihdr.bitDepth from by
+    have := ihdr_toBytes_tail ihdr 8 (by omega) (by omega); simpa using this]
+  -- Now the do-notation with pure binds should reduce to .ok { ... }
+  obtain ⟨w, h, bd, ct, cm, fm, im⟩ := ihdr
+  subst hc; subst hf
+  rfl
 
 /-- IHDR serialization always produces exactly 13 bytes. -/
 theorem ihdr_toBytes_size (ihdr : IHDRInfo) :
