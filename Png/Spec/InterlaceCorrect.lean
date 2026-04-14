@@ -433,22 +433,10 @@ private theorem extractPass_go_content (srcPixels : ByteArray) (srcWidth : Nat) 
       simp only [getPixel, show subW > 0 from hsubW_pos, ↓reduceIte, Nat.add_zero]
       -- Match on ch FIRST to resolve Fin coercion, then split on bounds
       match ch with
-      | ⟨0, _⟩ =>
-        split
-        · rw [push4_getElem!]
-        · rw [push4_getElem!]
-      | ⟨1, _⟩ =>
-        split
-        · rw [push4_getElem!]
-        · rw [push4_getElem!]
-      | ⟨2, _⟩ =>
-        split
-        · rw [push4_getElem!]
-        · rw [push4_getElem!]
-      | ⟨3, _⟩ =>
-        split
-        · rw [push4_getElem!]
-        · rw [push4_getElem!]
+      | ⟨0, _⟩ => split <;> (rw [push4_getElem!]; try rfl)
+      | ⟨1, _⟩ => split <;> (rw [push4_getElem!]; try rfl)
+      | ⟨2, _⟩ => split <;> (rw [push4_getElem!]; try rfl)
+      | ⟨3, _⟩ => split <;> (rw [push4_getElem!]; try rfl)
     · -- k > i: byte is in the recursive call
       have hki' : i + 1 ≤ k := by omega
       have : total - (i + 1) < total - i := by omega
@@ -557,7 +545,41 @@ private theorem setPixelAt_getElem!_eq (buf : ByteArray) (idx : Nat) (ch : Fin 4
 theorem adam7Scatter_extract (image : PngImage)
     (hvalid : image.isValid = true) :
     adam7Scatter (adam7Extract image) image.width.toNat image.height.toNat = image := by
-  sorry
+  -- Unfold adam7Scatter to expose the structure fields
+  simp only [adam7Scatter]
+  -- Need { width := w.toUInt32, height := h.toUInt32, pixels := scatter_result } = image
+  -- Decompose into cases on image
+  cases image with
+  | mk iw ih ipix =>
+    simp only [] at hvalid ⊢
+    -- Now goal is: { width := iw.toNat.toUInt32, height := ih.toNat.toUInt32, pixels := ... } = { width := iw, height := ih, pixels := ipix }
+    congr 1
+    · exact UInt32_toNat_toUInt32 iw
+    · exact UInt32_toNat_toUInt32 ih
+    · -- pixels equality: scatter(extract(image)).pixels = image.pixels
+      -- Use ByteArray extensionality
+      apply ByteArray.ext_getElem!
+      · -- Same size
+        rw [adam7Scatter_go_size]
+        simp only [ByteArray.size, Array.size_replicate]
+        have := isValid_pixels_size ⟨iw, ih, ipix⟩ hvalid
+        simp only [ByteArray.size] at this
+        omega
+      · -- Same bytes at each index
+        intro j hj
+        -- j < scatter_result.size, which equals w * h * 4
+        have hpix_sz := isValid_pixels_size ⟨iw, ih, ipix⟩ hvalid
+        -- Handle w = 0 case (image is empty, no bytes to check)
+        by_cases hw_pos : iw.toNat = 0
+        · simp only [ByteArray.size] at hpix_sz; rw [hw_pos] at hpix_sz
+          simp only [Nat.zero_mul] at hpix_sz
+          rw [adam7Scatter_go_size, ByteArray.size, Array.size_replicate] at hj
+          rw [hw_pos] at hj; simp only [Nat.zero_mul] at hj; omega
+        · have hfw_pos : iw.toNat > 0 := Nat.pos_of_ne_zero hw_pos
+          -- For each byte j, find the owning pass
+          have ⟨p, hp⟩ := adam7_coverage (j / 4 / iw.toNat) (j / 4 % iw.toNat)
+          -- The scatter result at j equals what pass p wrote, which equals the original
+          sorry
 
 /-! ## Total Pixel Count Conservation -/
 
