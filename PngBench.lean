@@ -1,94 +1,102 @@
 import Png
 
-/-!
-# PNG Benchmark Suite
-
-Compares native Lean PNG decode/encode against libpng FFI on the
-PngSuite corpus and synthetic images. Reports throughput in pixels/ms.
+/-! Benchmark driver for hyperfine.
 
 Usage:
-    lake build bench
-    lake exe bench
+  lake exe bench <operation> <width> <height>
+
+Operations:
+  encode         — native PNG encode
+  encode-ffi     — libpng FFI encode
+  decode         — native PNG decode
+  decode-ffi     — libpng FFI decode
+  filter         — native scanline filtering only
+  unfilter       — native scanline unfiltering only
+  roundtrip      — native encode then decode
+  roundtrip-ffi  — FFI encode then decode
+
+Images are synthetic RGBA gradients of the given dimensions.
+
+Examples:
+  hyperfine 'lake exe bench encode 256 256' 'lake exe bench encode-ffi 256 256'
+  hyperfine --parameter-list size 64,256,512,1024 \
+            '.lake/build/bin/bench encode {size} {size}' \
+            '.lake/build/bin/bench encode-ffi {size} {size}'
 -/
 
 open Png
 
-/-- Time an IO action, returning (result, elapsed_ms). -/
-def timeMs (action : IO α) : IO (α × Nat) := do
-  let start ← IO.monoMsNow
-  let result ← action
-  let stop ← IO.monoMsNow
-  return (result, stop - start)
-
-/-- Benchmark a single image: encode then decode via both native and FFI. -/
-def benchImage (label : String) (image : PngImage) : IO Unit := do
-  -- Native encode (force evaluation via size check)
-  let (encoded, encMs) ← timeMs (do
-    let r := Native.Encode.encodePng image
-    let _ := r.size  -- force
-    return r)
-  -- Native decode (force evaluation via match)
-  let (decoded, decMs) ← timeMs (do
-    let r := Native.Decode.decodePng encoded
-    match r with
-    | .ok img => let _ := img.pixels.size; return r
-    | .error _ => return r)
-  let nativeOk := match decoded with
-    | .ok img => img.pixels == image.pixels
-    | .error _ => false
-  -- FFI encode
-  let (ffiEncodedExcept, ffiEncMs) ← timeMs (FFI.encode image)
-  -- FFI decode
-  let (ffiDecodedExcept, ffiDecMs) ← timeMs (do
-    match ffiEncodedExcept with
-    | .ok enc => FFI.decodeMemory enc
-    | .error e => return .error e)
-  let ffiOk := match ffiDecodedExcept with
-    | .ok img => img.pixels == image.pixels
-    | .error _ => false
-  let pixels := image.width.toNat * image.height.toNat
-  IO.println s!"  {label}: {pixels} px | native enc {encMs}ms dec {decMs}ms | ffi enc {ffiEncMs}ms dec {ffiDecMs}ms | match: native={nativeOk} ffi={ffiOk}"
-
-/-- Generate a synthetic RGBA image with a gradient pattern. -/
-def makeGradient (w h : UInt32) : PngImage :=
-  let size := w.toNat * h.toNat * 4
+/-- Generate a synthetic RGBA gradient image. -/
+def makeGradient (w h : Nat) : PngImage :=
+  let size := w * h * 4
   let pixels := ByteArray.mk (Array.ofFn (n := size) fun i =>
     let idx := i.val
     let channel := idx % 4
     match channel with
-    | 0 => (idx / 4 % w.toNat * 255 / (w.toNat.max 1)).toUInt8
-    | 1 => (idx / 4 / w.toNat * 255 / (h.toNat.max 1)).toUInt8
+    | 0 => (idx / 4 % w * 255 / w.max 1).toUInt8
+    | 1 => (idx / 4 / w * 255 / h.max 1).toUInt8
     | 2 => 128
     | _ => 255)
-  { width := w, height := h, pixels }
+  { width := w.toUInt32, height := h.toUInt32, pixels }
 
-/-- Benchmark decoding PngSuite images via FFI. -/
-def benchPngSuite : IO Unit := do
-  IO.println "PngSuite decode (FFI only — native only supports RGBA 8-bit):"
-  let dir := "testdata/pngsuite"
-  let entries ← System.FilePath.readDir dir
-  let pngs := entries.filter (fun e => e.fileName.endsWith ".png" && !e.fileName.startsWith "x")
-  let mut totalMs : Nat := 0
-  let mut count : Nat := 0
-  for entry in pngs do
-    let (resultExcept, ms) ← timeMs (FFI.decodeFile entry.path.toString)
-    match resultExcept with
-    | .ok _ => totalMs := totalMs + ms; count := count + 1
-    | .error _ => pure ()
-  IO.println s!"  {count} images decoded in {totalMs}ms total"
-
-def main : IO Unit := do
-  IO.println "lean-png benchmark suite"
-  IO.println "========================"
-  IO.println ""
-  IO.println "Synthetic images (native vs FFI):"
-  benchImage "1x1" (makeGradient 1 1)
-  benchImage "16x16" (makeGradient 16 16)
-  benchImage "64x64" (makeGradient 64 64)
-  benchImage "256x256" (makeGradient 256 256)
-  benchImage "512x512" (makeGradient 512 512)
-  benchImage "1024x1024" (makeGradient 1024 1024)
-  IO.println ""
-  benchPngSuite
-  IO.println ""
-  IO.println "Done."
+def main (args : List String) : IO Unit := do
+  match args with
+  | [op, wStr, hStr] =>
+    let some w := wStr.toNat? | usage
+    let some h := hStr.toNat? | usage
+    let image := makeGradient w h
+    run op image
+  | _ => usage
+where
+  usage := throw (IO.userError
+    "usage: bench <encode|encode-ffi|decode|decode-ffi|filter|unfilter|roundtrip|roundtrip-ffi> <width> <height>")
+  run (op : String) (image : PngImage) : IO Unit := do
+    match op with
+    | "encode" =>
+      let encoded := Native.Encode.encodePng image
+      -- Force evaluation
+      if encoded.size == 0 then throw (IO.userError "empty")
+    | "encode-ffi" =>
+      let result ← FFI.encode image
+      match result with
+      | .ok _ => pure ()
+      | .error e => throw (IO.userError e)
+    | "decode" =>
+      let encoded := Native.Encode.encodePng image
+      match Native.Decode.decodePng encoded with
+      | .ok _ => pure ()
+      | .error e => throw (IO.userError e)
+    | "decode-ffi" =>
+      let result ← FFI.encode image
+      match result with
+      | .ok enc =>
+        let dec ← FFI.decodeMemory enc
+        match dec with
+        | .ok _ => pure ()
+        | .error e => throw (IO.userError e)
+      | .error e => throw (IO.userError e)
+    | "filter" =>
+      let filtered := Native.Encode.filterScanlines image.pixels image.width image.height .none
+      if filtered.size == 0 then throw (IO.userError "empty")
+    | "unfilter" =>
+      let filtered := Native.Encode.filterScanlines image.pixels image.width image.height .none
+      match Native.Decode.unfilterScanlines filtered image.width image.height 4 with
+      | .ok _ => pure ()
+      | .error e => throw (IO.userError e)
+    | "roundtrip" =>
+      let encoded := Native.Encode.encodePng image
+      match Native.Decode.decodePng encoded with
+      | .ok decoded =>
+        if decoded.pixels != image.pixels then throw (IO.userError "pixel mismatch")
+      | .error e => throw (IO.userError e)
+    | "roundtrip-ffi" =>
+      let encResult ← FFI.encode image
+      match encResult with
+      | .ok enc =>
+        let decResult ← FFI.decodeMemory enc
+        match decResult with
+        | .ok decoded =>
+          if decoded.pixels != image.pixels then throw (IO.userError "pixel mismatch")
+        | .error e => throw (IO.userError e)
+      | .error e => throw (IO.userError e)
+    | other => throw (IO.userError s!"unknown operation: {other}")
