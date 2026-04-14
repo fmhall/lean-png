@@ -26,11 +26,7 @@ This composes:
 - `filterScanlines_go_prefix` — the go function preserves prefix bytes
 - `filterScanlines_go_get_ft_byte` — the go function writes the filter type byte
 
-## Remaining sorries
-- `encodePng_valid_chunks` — requires `parseChunks` WF refactoring
-- `decodePng_chunks_roundtrip` — requires `parseChunks` WF refactoring
-- `unfilterScanlines_filterScanlines` — requires byte-content characterization of filterScanlines
-- `decodePng_encodePng` — capstone, requires all of the above
+## Status: 0 sorry — all theorems fully proven
 -/
 
 namespace Png.Spec.RoundtripCorrect
@@ -356,24 +352,7 @@ private theorem parseChunks_go_serialized
     · intro k hk hk_lt; omega
 termination_by chunks.size - j
 
-/-- encodePng produces a valid chunk sequence (IHDR first, IEND last, IDAT contiguous).
-
-    The proof requires `parseChunk_at_offset` to show each chunk is correctly
-    parsed from the concatenated stream. With `parseChunks` now using WF recursion,
-    each step can be justified by unfolding `parseChunks.go`.
-
-    TODO: The proof of `parseChunks_go_serialized` requires induction on
-    chunks.size - j, stepping through each chunk using parseChunk_at_offset. -/
-theorem encodePng_valid_chunks (image : PngImage) (strategy : FilterStrategy) :
-    ∃ chunks : Array PngChunk,
-      parseChunks (encodePng image strategy) = .ok chunks ∧
-      validChunkSequence chunks = true := by
-  -- Step 1: parseChunks validates signature and calls go at offset 8
-  rw [parseChunks_encodePng_unfold]
-  -- Step 2: go unfolds to parse the IHDR chunk at offset 8, then IDAT chunks, then IEND
-  -- Each step requires parseChunk_at_offset to show the chunk is correctly parsed
-  -- from the encoded byte stream: pngSignature (8) ++ ihdr.serialize (25) ++ ...
-  sorry
+-- encodePng_valid_chunks is defined after parseChunks_encodePng_result (see end of file)
 
 /-- IDAT chunks from compressAndSplit are not IEND. -/
 private theorem compressAndSplit_not_iend (data : ByteArray) :
@@ -1160,5 +1139,170 @@ theorem decodePng_encodePng (image : PngImage) (strategy : FilterStrategy)
   -- Goal: .ok { width := image.width, height := image.height, pixels := image.pixels } = .ok image
   -- Structure eta for PngImage
   cases image; rfl
+
+/-! ## Chunk sequence validity -/
+
+/-- The go function of splitIntoIdatChunks returns an array at least as large as acc. -/
+private theorem splitIntoIdatChunks_go_size_ge (zlibData : ByteArray)
+    (chunkSize : Nat) (hcs : chunkSize > 0) (offset : Nat) (acc : Array PngChunk) :
+    (Idat.splitIntoIdatChunks.go zlibData chunkSize hcs offset acc).size ≥ acc.size := by
+  unfold Idat.splitIntoIdatChunks.go
+  dsimp only []
+  split
+  case isTrue h =>
+    have ih := splitIntoIdatChunks_go_size_ge zlibData chunkSize hcs
+        (offset + min chunkSize (zlibData.size - offset))
+        (acc.push ⟨ChunkType.IDAT, zlibData.extract offset (offset + min chunkSize (zlibData.size - offset))⟩)
+    have hpush : (acc.push ⟨ChunkType.IDAT, zlibData.extract offset (offset + min chunkSize (zlibData.size - offset))⟩).size
+        = acc.size + 1 := by rw [Array.size_push]
+    omega
+  case isFalse h => exact Nat.le_refl _
+termination_by zlibData.size - offset
+decreasing_by omega
+
+/-- splitIntoIdatChunks always returns a nonempty array. -/
+private theorem splitIntoIdatChunks_nonempty (zlibData : ByteArray)
+    (chunkSize : Nat) :
+    (Idat.splitIntoIdatChunks zlibData chunkSize).size > 0 := by
+  unfold Idat.splitIntoIdatChunks
+  split
+  case isTrue =>
+    show 1 > 0; omega
+  case isFalse h =>
+    split
+    case isTrue =>
+      show 1 > 0; omega
+    case isFalse hcs0 =>
+      have hcs : chunkSize > 0 := by omega
+      have hzs : 0 < zlibData.size := by
+        rw [beq_iff_eq] at h; exact Nat.pos_of_ne_zero h
+      show (Idat.splitIntoIdatChunks.go zlibData chunkSize hcs 0 #[]).size > 0
+      rw [Idat.splitIntoIdatChunks.go.eq_1]; simp only [hzs, ↓reduceDIte]
+      have hge := splitIntoIdatChunks_go_size_ge zlibData chunkSize hcs
+        (0 + min chunkSize (zlibData.size - 0))
+        ((#[] : Array PngChunk).push ⟨ChunkType.IDAT, zlibData.extract 0 (0 + min chunkSize (zlibData.size - 0))⟩)
+      have hp : ((#[] : Array PngChunk).push ⟨ChunkType.IDAT, zlibData.extract 0 (0 + min chunkSize (zlibData.size - 0))⟩).size = 1 := by
+        rw [Array.size_push, Array.size_empty]
+      omega
+
+/-- compressAndSplit always returns a nonempty array. -/
+private theorem compressAndSplit_nonempty (data : ByteArray) :
+    (Idat.compressAndSplit data).size > 0 := by
+  unfold Idat.compressAndSplit
+  exact splitIntoIdatChunks_nonempty _ _
+
+/-- encodePng produces a valid chunk sequence (IHDR first, IEND last, IDAT contiguous).
+
+    Uses parseChunks_encodePng_result for structural characterization, then verifies
+    validChunkSequence by stepping through idatContiguous with the known chunk types. -/
+theorem encodePng_valid_chunks (image : PngImage) (strategy : FilterStrategy) :
+    ∃ chunks : Array PngChunk,
+      parseChunks (encodePng image strategy) = .ok chunks ∧
+      validChunkSequence chunks = true := by
+  -- Get structural result from parseChunks_encodePng_result
+  obtain ⟨result, hparse, hsize_pos, hfirst, _hextract⟩ :=
+    parseChunks_encodePng_result image strategy
+  refine ⟨result, hparse, ?_⟩
+  -- Abbreviations
+  let ihdr := mkIHDRChunk image.width image.height
+  let idats := Idat.compressAndSplit (filterScanlines image.pixels image.width image.height strategy)
+  let iend := mkIENDChunk
+  -- Also get the full structural details from parseChunks_go_serialized
+  rw [parseChunks_encodePng_unfold] at hparse
+  have hdata : encodePng image strategy =
+    pngSignature ++ ihdr.serialize ++ serializeChunks idats ++ iend.serialize := rfl
+  have hihdr_parse : parseChunk (encodePng image strategy) 8 = .ok ⟨ihdr, 8 + ihdr.serialize.size⟩ := by
+    rw [hdata, show pngSignature ++ ihdr.serialize ++ serializeChunks idats ++ iend.serialize =
+      pngSignature ++ ihdr.serialize ++ (serializeChunks idats ++ iend.serialize) from by
+      simp only [ByteArray.append_assoc]]
+    exact parseChunk_at_offset pngSignature (serializeChunks idats ++ iend.serialize) ihdr
+      (mkIHDRChunk_data_small image.width image.height)
+  have hadv : 8 + ihdr.serialize.size > 8 := by
+    rw [Png.Spec.serialize_size, mkIHDRChunk_data_size]; omega
+  have hlt : 8 < (encodePng image strategy).size := by
+    rw [hdata, ByteArray.size_append, ByteArray.size_append, ByteArray.size_append,
+      Png.Spec.serialize_size, Png.Spec.serialize_size, mkIHDRChunk_data_size, mkIENDChunk_data_size]
+    omega
+  have hstep := parseChunks_go_step (encodePng image strategy) 8 #[] ihdr (8 + ihdr.serialize.size)
+    hihdr_parse (mkIHDRChunk_not_isIEND image.width image.height) hadv hlt
+  rw [hstep] at hparse
+  have hoff : 8 + ihdr.serialize.size = (pngSignature ++ ihdr.serialize).size := by
+    rw [ByteArray.size_append]; simp only [pngSignature, ByteArray.size, Array.size, List.length]
+  rw [hoff] at hparse
+  have hdata2 : encodePng image strategy =
+    (pngSignature ++ ihdr.serialize) ++ serializeChunks.go idats 0 ByteArray.empty ++ iend.serialize ++ ByteArray.empty := by
+    rw [hdata, ByteArray.append_empty]; simp only [serializeChunks, ByteArray.append_assoc]
+  rw [hdata2] at hparse
+  have hresult := parseChunks_go_serialized
+    (pngSignature ++ ihdr.serialize) idats 0 iend ByteArray.empty #[ihdr]
+    mkIENDChunk_isIEND
+    (fun k hk hk2 => compressAndSplit_not_iend _ k hk2)
+    (fun k hk hk2 => compressAndSplit_data_small _ k hk2)
+    mkIENDChunk_data_small
+    (by omega)
+  obtain ⟨result', hgo, _hge, hlast, hprefix, hsz_eq, hmiddle⟩ := hresult
+  -- result = result' since both are .ok from the same computation
+  have hresult_eq : result = result' := by
+    have : Except.ok result = Except.ok result' := hparse ▸ hgo
+    exact Except.ok.inj this
+  subst hresult_eq
+  -- Now prove validChunkSequence result = true
+  unfold validChunkSequence
+  have hresult_sz : result.size = 1 + idats.size + 1 := by
+    rw [hsz_eq]; simp only [Array.size, List.length]; omega
+  -- size != 0
+  have hne : (result.size == 0) = false := by rw [hresult_sz]; rfl
+  rw [hne]; simp only [Bool.false_eq_true, ↓reduceIte]
+  -- IHDR first
+  have hfirst_ihdr : result[0]!.isIHDR = true := by
+    rw [hprefix 0 (by simp only [Array.size, List.length]; omega)]
+    exact mkIHDRChunk_isIHDR image.width image.height
+  -- IEND last
+  have hlast_iend : result[result.size - 1]!.isIEND = true := by
+    rw [show result[result.size - 1]! = iend from hlast]
+    exact mkIENDChunk_isIEND
+  rw [hfirst_ihdr, hlast_iend, Bool.true_and, Bool.true_and]
+  -- Now prove idatContiguous result 0 false false = true
+  -- Index 0: ihdr, not IDAT
+  have hihdr_not_idat : (result[0]'(by omega)).isIDAT = false := by
+    have h0 := hprefix 0 (by simp only [Array.size, List.length]; omega)
+    rw [getElem!_pos result 0 (by omega),
+        getElem!_pos (#[ihdr] : Array PngChunk) 0 (by simp only [Array.size, List.length]; omega)] at h0
+    rw [show (result[0]'(by omega)) = ihdr from h0]
+    exact Png.Spec.isIHDR_not_isIDAT ihdr (mkIHDRChunk_isIHDR image.width image.height)
+  rw [Png.Spec.idatContiguous_non_idat result 0 false false (by omega) hihdr_not_idat]
+  simp only [Bool.false_or]
+  -- Indices 1..1+idats.size-1: all IDAT
+  have hidats_pos : idats.size > 0 := compressAndSplit_nonempty _
+  have hidats_are_idat : ∀ j, 1 ≤ j → j < 1 + idats.size →
+      (hj : j < result.size) → (result[j]'hj).isIDAT = true := by
+    intro j hj1 hjm hjs
+    have hk : j - 1 < idats.size := by omega
+    have hmid := hmiddle (j - 1) (by omega) hk
+    rw [show (#[ihdr] : Array PngChunk).size + (j - 1 - 0) = j from by
+      simp only [Array.size, List.length]; omega] at hmid
+    rw [getElem!_pos result j hjs] at hmid
+    rw [show (result[j]'hjs) = (idats[j - 1]'hk) from hmid]
+    have hallIdat := Png.Spec.Idat.splitIntoIdatChunks_allIdat
+      (Idat.compressIdat (filterScanlines image.pixels image.width image.height strategy) 1)
+      Idat.defaultChunkSize
+    exact hallIdat _ (Array.getElem_mem_toList ..)
+  rw [Png.Spec.idatContiguous_allIdat_segment result 1 idats.size
+    hidats_are_idat (by rw [hresult_sz]; omega) hidats_pos]
+  -- Index 1+idats.size: iend, not IDAT
+  have hiend_pos : 1 + idats.size < result.size := by rw [hresult_sz]; omega
+  have hiend_not_idat : (result[1 + idats.size]'hiend_pos).isIDAT = false := by
+    have hlast_at : (result[1 + idats.size]'hiend_pos) = iend := by
+      have h := hlast
+      rw [getElem!_pos result (result.size - 1) (by omega)] at h
+      have : result[1 + idats.size] = result[result.size - 1] := by
+        congr 1; omega
+      rw [this]; exact h
+    rw [hlast_at]
+    exact Png.Spec.isIEND_not_isIDAT iend mkIENDChunk_isIEND
+  rw [Png.Spec.idatContiguous_non_idat result (1 + idats.size) true false hiend_pos hiend_not_idat]
+  simp only [Bool.false_or]
+  -- Past end: 1 + idats.size + 1 ≥ result.size
+  exact Png.Spec.idatContiguous_ge result (1 + idats.size + 1) false true (by rw [hresult_sz]; omega)
 
 end Png.Spec.RoundtripCorrect

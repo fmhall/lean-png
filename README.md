@@ -6,8 +6,8 @@ machine-checked by Lean 4's kernel with zero `sorry`. If it
 type-checks, encoding followed by decoding recovers your original image.
 
 Built on [lean-zip](https://github.com/kim-em/lean-zip)'s verified
-DEFLATE/CRC32/Adler32. 20 source files, ~5,900 lines of Lean,
-177 proven theorems, 200 tests.
+DEFLATE/CRC32/Adler32. 20 source files, ~6,100 lines of Lean,
+193 proven theorems, 200 tests.
 
 ## Why verified PNG?
 
@@ -222,7 +222,7 @@ The roundtrip decomposes into independently-proven building blocks:
 | BB2: IDAT pipeline | `decompress(compress(data)) = data` | **Proven** |
 | BB3: Scanline filters | `unfilter(filter(row)) = row` (all 5 types) | **Proven** |
 | BB4: Composition | `decode(encode(image)) = image` | **Proven** |
-| BB5: Interlacing | Coverage, uniqueness, coordinate roundtrips | 8/9 proven |
+| BB5: Interlacing | Coverage, uniqueness, coordinate roundtrips | 14/15 proven |
 
 ### Source layout
 
@@ -240,11 +240,11 @@ Png/
     Encode.lean         — PNG encoder (filter → compress → chunk → serialize)
     Decode.lean         — PNG decoder (parse → decompress → unfilter)
   Spec/
-    ChunkCorrect.lean   — Chunk roundtrip proofs (16 theorems)
-    IdatCorrect.lean    — IDAT roundtrip proofs (10 theorems)
-    FilterCorrect.lean  — Filter roundtrip proofs, all 5 types (30 theorems)
-    InterlaceCorrect.lean — Interlace proofs (13 theorems, 1 sorry)
-    RoundtripCorrect.lean — Capstone composition (46 theorems, 1 sorry)
+    ChunkCorrect.lean   — Chunk roundtrip proofs (43 theorems)
+    IdatCorrect.lean    — IDAT roundtrip proofs (19 theorems)
+    FilterCorrect.lean  — Filter roundtrip proofs, all 5 types (36 theorems)
+    InterlaceCorrect.lean — Interlace proofs (27 theorems, 1 sorry)
+    RoundtripCorrect.lean — Capstone composition (57 theorems, 0 sorry)
 PngTest/                — 200 conformance tests (native vs FFI + PngSuite)
 PngBench.lean           — Benchmark driver for hyperfine
 c/png_ffi.c             — libpng FFI wrapper (~500 lines of C)
@@ -269,26 +269,25 @@ exact zlib_decompressSingle_compress data level hsize
 
 ## Project status
 
-**20 source files. ~5,900 lines of Lean. 177 theorems. 3 `sorry`s.
+**20 source files. ~6,100 lines of Lean. 193 theorems. 1 `sorry`.
 200 tests. Capstone proven.**
 
 ### Fully proven (0 sorry)
 
 | File | Theorems | Key result |
 |------|----------|-----------|
-| `FilterCorrect.lean` | 30 | `unfilterRow_filterRow` (all 5 types) |
-| `IdatCorrect.lean` | 10 | `decompressIdat_compressIdat` |
-| `RoundtripCorrect.lean` | 46 | **`decodePng_encodePng`** (capstone) |
+| `ChunkCorrect.lean` | 43 | `parseChunk_serialize`, `validChunkSequence_basic` |
+| `FilterCorrect.lean` | 36 | `unfilterRow_filterRow` (all 5 types) |
+| `IdatCorrect.lean` | 19 | `decompressIdat_compressIdat` |
+| `RoundtripCorrect.lean` | 57 | **`decodePng_encodePng`** (capstone), `encodePng_valid_chunks` |
 
-### Remaining sorries (3, all non-critical)
+### Remaining sorry (1, not on capstone path)
 
 | File | Sorry | Why it's hard |
 |------|-------|--------------|
-| `ChunkCorrect.lean` | `validChunkSequence_basic` | Array concat indexing through `idatContiguous` WF recursion |
 | `InterlaceCorrect.lean` | `adam7Scatter_extract` | Byte-level extract/scatter composition across 7 passes |
-| `RoundtripCorrect.lean` | `encodePng_valid_chunks` | Chunk sequence validity (not on roundtrip path) |
 
-None of these are on the capstone's critical path. The roundtrip
+This is not on the capstone's critical path. The roundtrip
 `decodePng(encodePng(image)) = image` is fully machine-checked.
 
 ## Benchmarks

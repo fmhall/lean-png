@@ -1,4 +1,5 @@
 import Png.Native.Interlace
+import Png.Util.ByteArray
 
 /-!
 # Adam7 Interlace Correctness Proofs
@@ -12,7 +13,7 @@ properties that ensure correctness:
 4. **Total pixel count**: sum of pass dimensions = full dimensions
 5. **Dimension bounds**: sub-image dimensions ≤ full image dimensions
 
-Proofs are sorry placeholders for now.
+All properties proven except `adam7Scatter_extract` (1 sorry remaining).
 -/
 
 namespace Png.Spec.InterlaceCorrect
@@ -225,13 +226,17 @@ theorem adam7_uniqueness (r c : Nat) (p q : Fin 7)
 
 /-! ## Scatter/Extract Roundtrip -/
 
+/-- setPixelAt preserves buffer size. -/
+private theorem setPixelAt_size (buf : ByteArray) (idx : Nat)
+    (pixel : UInt8 × UInt8 × UInt8 × UInt8) :
+    (setPixelAt buf idx pixel).size = buf.size := by
+  simp only [setPixelAt]
+  split
+  · rw [ByteArray.size_set!, ByteArray.size_set!, ByteArray.size_set!, ByteArray.size_set!]
+  · rfl
+
 /-- Scattering the extracted sub-images back into a full image
     recovers the original image. -/
--- This theorem requires characterizing the byte-level behavior of
--- extractPass.go and scatterPass.go composed together. The proof
--- needs auxiliary size and content lemmas for both recursive functions.
--- Leaving as sorry — it is the composition theorem requiring substantial
--- proof engineering comparable to the filter roundtrip proofs.
 theorem adam7Scatter_extract (image : PngImage)
     (hvalid : image.isValid = true) :
     adam7Scatter (adam7Extract image) image.width.toNat image.height.toNat = image := by

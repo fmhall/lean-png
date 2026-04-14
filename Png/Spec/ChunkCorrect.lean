@@ -274,14 +274,14 @@ theorem plte_isCritical : ChunkType.isCritical ChunkType.PLTE = true := by
 /-! ## Chunk sequence validity -/
 
 /-- `idatContiguous` past the end of the array always returns true. -/
-private theorem idatContiguous_ge (chunks : Array PngChunk) (i : Nat)
+theorem idatContiguous_ge (chunks : Array PngChunk) (i : Nat)
     (inIdat afterIDAT : Bool) (h : i ≥ chunks.size) :
     idatContiguous chunks i inIdat afterIDAT = true := by
   unfold idatContiguous
   rw [dif_neg (by omega)]
 
 /-- Stepping through a non-IDAT chunk. -/
-private theorem idatContiguous_non_idat (chunks : Array PngChunk) (i : Nat)
+theorem idatContiguous_non_idat (chunks : Array PngChunk) (i : Nat)
     (inIdat afterIDAT : Bool) (hi : i < chunks.size)
     (hnotIDAT : chunks[i].isIDAT = false) :
     idatContiguous chunks i inIdat afterIDAT =
@@ -290,7 +290,7 @@ private theorem idatContiguous_non_idat (chunks : Array PngChunk) (i : Nat)
   simp only [hi, ↓reduceDIte, hnotIDAT, Bool.false_eq_true, ↓reduceIte]
 
 /-- Stepping through an IDAT chunk with afterIDAT = false. -/
-private theorem idatContiguous_idat (chunks : Array PngChunk) (i : Nat)
+theorem idatContiguous_idat (chunks : Array PngChunk) (i : Nat)
     (inIdat : Bool) (hi : i < chunks.size)
     (hIDAT : chunks[i].isIDAT = true) :
     idatContiguous chunks i inIdat false =
@@ -307,13 +307,13 @@ private theorem idatContiguous_idat_after (chunks : Array PngChunk) (i : Nat)
   simp only [hi, ↓reduceDIte, hIDAT, ↓reduceIte]
 
 /-- If `isIHDR` is true then `isIDAT` is false. -/
-private theorem isIHDR_not_isIDAT (c : PngChunk) (h : c.isIHDR = true) :
+theorem isIHDR_not_isIDAT (c : PngChunk) (h : c.isIHDR = true) :
     c.isIDAT = false := by
   simp only [PngChunk.isIHDR, PngChunk.isIDAT, beq_iff_eq] at h ⊢
   rw [h]; decide
 
 /-- If `isIEND` is true then `isIDAT` is false. -/
-private theorem isIEND_not_isIDAT (c : PngChunk) (h : c.isIEND = true) :
+theorem isIEND_not_isIDAT (c : PngChunk) (h : c.isIEND = true) :
     c.isIDAT = false := by
   simp only [PngChunk.isIEND, PngChunk.isIDAT, beq_iff_eq] at h ⊢
   rw [h]; decide
@@ -334,7 +334,7 @@ private theorem idatContiguous_noIdat_segment (chunks : Array PngChunk) (i n : N
     exact this
 
 /-- Continue through IDAT chunks when already in IDAT mode. -/
-private theorem idatContiguous_idat_run (chunks : Array PngChunk) (i n : Nat)
+theorem idatContiguous_idat_run (chunks : Array PngChunk) (i n : Nat)
     (h : ∀ j, i ≤ j → j < i + n → (hj : j < chunks.size) → (chunks[j]'hj).isIDAT = true)
     (hn : i + n ≤ chunks.size) :
     idatContiguous chunks i true false = idatContiguous chunks (i + n) true false := by
@@ -348,7 +348,7 @@ private theorem idatContiguous_idat_run (chunks : Array PngChunk) (i n : Nat)
     exact this
 
 /-- Process a segment where all chunks are IDAT starting from non-IDAT mode. -/
-private theorem idatContiguous_allIdat_segment (chunks : Array PngChunk) (i n : Nat)
+theorem idatContiguous_allIdat_segment (chunks : Array PngChunk) (i n : Nat)
     (h : ∀ j, i ≤ j → j < i + n → (hj : j < chunks.size) → (chunks[j]'hj).isIDAT = true)
     (hn : i + n ≤ chunks.size)
     (hpos : n > 0) :
