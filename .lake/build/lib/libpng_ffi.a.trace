@@ -1,0 +1,12 @@
+{"synthetic": false,
+ "schemaVersion": "2025-09-10",
+ "outputs": "93c7c16b5915d274.a",
+ "log":
+ [{"message":
+   ".> /Users/masonhall/.elan/toolchains/leanprover--lean4---v4.29.0-rc4/bin/llvm-ar rcs /Users/masonhall/personal/projects/lean/lean-png/.lake/build/lib/libpng_ffi.a /Users/masonhall/personal/projects/lean/lean-png/.lake/build/c/png_ffi.o",
+   "level": "trace"}],
+ "inputs":
+ [["objs",
+   [["/Users/masonhall/personal/projects/lean/lean-png/.lake/build/c/png_ffi.o",
+     "83e0ba49b36aa27e"]]]],
+ "depHash": "5963891612a5708c"}

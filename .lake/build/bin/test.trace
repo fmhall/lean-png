@@ -1,0 +1,23 @@
+{"synthetic": false,
+ "schemaVersion": "2025-09-10",
+ "outputs": "b431a7345a79586f",
+ "log":
+ [{"message":
+   ".> MACOSX_DEPLOYMENT_TARGET=99.0 /Users/masonhall/.elan/toolchains/leanprover--lean4---v4.29.0-rc4/bin/clang -o /Users/masonhall/personal/projects/lean/lean-png/.lake/build/bin/test /Users/masonhall/personal/projects/lean/lean-png/.lake/build/ir/PngTest.c.o.export /Users/masonhall/personal/projects/lean/lean-png/.lake/packages/zipCommon/.lake/build/lib/libio_ffi.a /Users/masonhall/personal/projects/lean/lean-png/.lake/packages/leanZip/.lake/build/lib/libzlib_ffi.a /Users/masonhall/personal/projects/lean/lean-png/.lake/build/lib/libpng_ffi.a -L/opt/homebrew/opt/libpng/lib -lpng16 -L /Users/masonhall/.elan/toolchains/leanprover--lean4---v4.29.0-rc4/lib/lean --sysroot /Users/masonhall/.elan/toolchains/leanprover--lean4---v4.29.0-rc4 -L /Users/masonhall/.elan/toolchains/leanprover--lean4---v4.29.0-rc4/lib -L /Users/masonhall/.elan/toolchains/leanprover--lean4---v4.29.0-rc4/lib/libc -fuse-ld=lld -lleancpp -lInit -lStd -lLean -lleanrt -lc++ -lLake -lgmp -luv -Wl,-dead_strip",
+   "level": "trace"}],
+ "inputs":
+ [["linkObjs",
+   [["/Users/masonhall/personal/projects/lean/lean-png/.lake/build/ir/PngTest.c.o.export",
+     "f8da996ea9a97c2e"],
+    ["/Users/masonhall/personal/projects/lean/lean-png/.lake/packages/zipCommon/.lake/build/lib/libio_ffi.a",
+     "2d057da3e1500b2b"],
+    ["/Users/masonhall/personal/projects/lean/lean-png/.lake/packages/leanZip/.lake/build/lib/libzlib_ffi.a",
+     "bdcb07653be9b28d"],
+    ["/Users/masonhall/personal/projects/lean/lean-png/.lake/build/lib/libpng_ffi.a",
+     "93c7c16b5915d274"]]],
+  ["linkLibs", "00000000000006bb"],
+  ["Lean 4.29.0, commit 95583d74bd14ff8cc2b789347d15dfdad1259f97",
+   "b47cb87a0b6f79d6"],
+  ["traceArgs: #[-L/opt/homebrew/opt/libpng/lib, -lpng16]", "ce1909a50bb0aee2"],
+  ["arm64-apple-darwin24.6.0", "77c16133d139df5a"]],
+ "depHash": "9fc036071412f11d"}

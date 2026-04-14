@@ -1,0 +1,172 @@
+---
+name: lean-dependent-types
+description: Use when Lean 4 gives "motive is not type correct", max recursion on List.ofFn, rewriting fails due to dependent types, or cross-file visibility issues with private/protected.
+allowed-tools: Read, Bash, Grep
+---
+
+# Lean 4 Dependent Type and Visibility Patterns
+
+## `congr` Max Recursion on Nested `Prod` in `Option`
+
+`congr 1; congr 1` on `some (a, b, c) = some (x, y, z)` hits max recursion depth.
+Use `congrArg some (Prod.ext ?_ (Prod.ext ?_ rfl))` instead — gives clean sub-goals
+without recursion issues. Note: `congrArg` not `congr_arg`.
+
+## `rw`/`▸` Max Recursion on `List.ofFn`
+
+Rewriting a term containing `List.ofFn (fun (i : Fin n) => complex_expr)` can hit
+max recursion depth because the motive involves dependent types.
+Fix: use `set_option maxRecDepth 2048 in` before the `have`/tactic that performs
+the rewrite. `▸` is even worse than `rw` here since it triggers full `whnf`.
+
+## Namespace Scoping for New Definitions
+
+`def Foo.Bar.baz` inside `namespace Quux` creates `Quux.Foo.Bar.baz`, NOT `Foo.Bar.baz`.
+To define in a different namespace, either close the current namespace first, or use
+a local name (e.g. `def decodeBits` instead of `def Zip.Native.HuffTree.decodeBits`).
+
+## `protected` Not `private` for Cross-File Access
+
+When a definition or lemma in one file is needed by another, use `protected` visibility.
+`private` makes it inaccessible from other files. This applies to both:
+- Lemmas (e.g. `byteToBits_length` used in BitstreamCorrect and InflateCorrect)
+- Definitions referenced in proof hypotheses (e.g. native table constants like
+  `lengthBase`, `distExtra` in Inflate.lean that appear in `decodeHuffman.go` —
+  if they're `private`, proofs in InflateCorrect.lean can't name them in `cases`
+  or `simp` arguments)
+
+**Caveat**: `protected` requires fully-qualified names even within the same namespace
+(`Inflate.lengthBase` instead of `lengthBase`). For definitions used unqualified within
+their own namespace AND needed cross-file, use public (no modifier) instead.
+
+## `▸` Rewrites in the Wrong Direction for Transitive Equality
+
+When proving `br'.data = br.data` by chaining `br'.data = br₁.data` and
+`br₁.data = br.data`, do NOT use `hd' ▸ hd₁ ▸ rfl` — `▸` rewrites in the wrong
+direction, changing dependent types in the goal (e.g. `br'.data.size` becomes
+`br.data.size` when you need the reverse).
+
+Use `exact hd'.trans hd₁` or `exact ⟨hd'.trans hd₁, ...⟩` instead.
+
+This applies generally: `▸` is designed for rewriting the goal by substituting
+the LHS of an equation with the RHS. For transitive equality chains, `.trans` is
+always cleaner and avoids dependent-type issues.
+
+## `if let` Mismatch When Threading State Through Composition Theorems
+
+When a composition theorem has `(hlit2 : ... (if let some ht := huffTree1 then some ht else prevHuff) ...)`
+and you instantiate `prevHuff := none` at a call site, the `if let` elaboration includes
+earlier proof parameters (e.g. `hlit1`) as match scrutinees. The resulting match motive
+differs between the theorem's context and your call site, causing a type mismatch even
+though both types **print identically**.
+
+`exact`, `by exact`, and direct application all fail.
+
+**Fix**: Inline the two-step proof instead of calling the composition theorem:
+```lean
+-- Instead of: have h := composition_theorem ... hlit2
+-- Do:
+rw [step_theorem ...]
+exact single_block_theorem ... (by cases huffTree1 <;> exact hlit2) ...
+```
+
+Use `huffTree1` directly in your hypothesis (cleaner than `if let ... else none`),
+then `(by cases huffTree1 <;> exact hlit2)` bridges the gap at the single-block
+theorem call site by reducing the `if let` to concrete `none`/`some` values.
+
+See `decompressFrame_compressed_seq_then_compressed_lit_content` in `Zip/Spec/Zstd.lean`
+for the working pattern.
+
+## `subst` Before `cases` to Avoid Alpha-Equivalence Mismatch
+
+When composing two-block theorems, a step theorem produces output with
+`if let` expressions containing proof variables whose names differ from
+the theorem statement's elaboration. This causes type mismatches even
+when both types **print identically** — the underlying match motives
+differ in alpha-equivalence.
+
+**Symptom**: `exact`, `by exact`, and direct application of a single-block
+theorem all fail after applying a step theorem, despite the goal appearing
+to match the theorem's type.
+
+**Fix**: Use `subst` to eliminate intermediate position variables early,
+before `cases` on the `if let` discriminant:
+
+```lean
+-- Composition theorem: block1 (step) + block2 (single-block)
+theorem f_two_block ... := by
+  rw [step_theorem ...]
+  -- Goal now has: if let some ht := huffTree1 then some ht else prevHuff
+  -- DON'T try exact single_block_theorem directly — alpha mismatch
+  subst hpos_eq1              -- eliminate afterHdr1 early, avoids hlit1' creation
+  cases huffTree1             -- reduces if let to concrete none/some values
+  · exact single_block_none_theorem ...
+  · exact single_block_some_theorem ...
+```
+
+**Why it works**: `subst` eliminates the intermediate variable before Lean
+elaborates the `if let` match. Without `subst`, the `if let` captures
+earlier proof parameters (e.g., `hlit1`) as match scrutinees, creating
+a motive that differs from the single-block theorem's context.
+
+**When to use**: Two-block composition theorems in `Zip/Spec/Zstd.lean`
+where `huffTree` state is threaded between blocks via `if let ... then
+some ht else prevHuff` patterns.
+
+See `decompressBlocksWF_succeeds_compressed_zero_seq_then_compressed_zero_seq`
+in `Zip/Spec/Zstd.lean` for the working pattern.
+
+## `congrArg` for Large List/Array Rewrites
+
+When rewriting a term containing large constant lists (e.g., 288-element
+`fixedLitLengths`), `rw` can hit `maxRecDepth` because the motive involves
+traversing the entire structure:
+
+```lean
+-- FAILS: max recursion on 288-element list
+rw [← fixedLitLengths_eq] at h
+```
+
+**Fix**: Use `congrArg` to lift the equality through the outer function:
+
+```lean
+-- WORKS: avoids deep traversal
+have := congrArg (Huffman.Spec.codeFor · 15 s) fixedLitLengths_eq
+```
+
+This pattern applies whenever `rw` hits recursion limits on terms containing
+large constants. The key is to apply the equality through a function wrapper
+rather than directly rewriting inside the term.
+
+**Also**: For the theorem itself, you may need `maxRecDepth 4096` and
+`maxHeartbeats 4000000` when working with large constant tables (288
+literals, 32 distances, etc.).
+
+## `letFun` for `have` Bindings in Unfolded Definitions
+
+When `unfold f at h` leaves `have x := e; body` bindings, these appear
+as `letFun` in the elaborated term. Simplify with:
+
+```lean
+simp only [letFun] at h
+```
+
+**Note**: The `unusedHavesSuffice` linter may report `letFun` as unused
+in `simp only` — this is a false positive. The `letFun` lemma is needed
+to reduce the `have` binding.
+
+## `exact` vs `have :=` for Wildcard Resolution
+
+`exact f _ _ _` does goal-directed elaboration — wildcards are resolved from the
+expected goal type.
+
+`have := f _ _ _` elaborates independently and fails when wildcards can't be inferred
+from the function signature alone (e.g., complex expressions like hash table states
+from `updateHashes`).
+
+When applying a recursive lemma whose arguments include complex intermediate state,
+prefer `exact` (possibly via a helper lemma) over `have :=`. For arithmetic wrappers
+around recursive calls, extract a helper like `length_cons_le_of_advance` and use:
+```lean
+exact helper (recursive_lemma _ _ _ _ _) (by omega) hle
+```
