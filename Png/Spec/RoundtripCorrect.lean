@@ -254,7 +254,8 @@ private theorem Array_push_getElem!_lt [Inhabited α] (a : Array α) (x : α) (i
 set_option maxHeartbeats 6400000 in
 /-- Key induction lemma: parseChunks.go on pfx ++ (serialized non-IEND chunks) ++ iend.serialize ++ sfx
     starting at pfx.size terminates successfully with the last chunk being iend.
-    Also preserves all acc elements at their original positions. -/
+    Also preserves all acc elements at their original positions.
+    Additionally returns the exact size and element-wise correspondence for middle elements. -/
 private theorem parseChunks_go_serialized
     (pfx : ByteArray) (chunks : Array PngChunk) (j : Nat)
     (iendChunk : PngChunk) (sfx : ByteArray) (acc : Array PngChunk)
@@ -269,7 +270,9 @@ private theorem parseChunks_go_serialized
         pfx.size acc = .ok result ∧
       result.size ≥ acc.size + 1 ∧
       result[result.size - 1]! = iendChunk ∧
-      (∀ i, i < acc.size → result[i]! = acc[i]!) := by
+      (∀ i, i < acc.size → result[i]! = acc[i]!) ∧
+      result.size = acc.size + (chunks.size - j) + 1 ∧
+      (∀ k, j ≤ k → (hk : k < chunks.size) → result[acc.size + (k - j)]! = chunks[k]) := by
   by_cases hj_lt : j < chunks.size
   case pos =>
     -- Decompose and reassociate ByteArray
@@ -309,12 +312,36 @@ private theorem parseChunks_go_serialized
         hsmallIEND
         (by omega)
     rw [ByteArray.size_append] at ih
-    obtain ⟨result, hresult, hsize, hlast, hprefix⟩ := ih
-    refine ⟨result, hresult, by rw [Array.size_push] at hsize; omega, hlast, ?_⟩
-    intro i hi_acc
-    have hi_push : i < (acc.push (chunks[j]'hj_lt)).size := by
-      rw [Array.size_push]; omega
-    rw [hprefix i hi_push, Array_push_getElem!_lt acc _ i hi_acc]
+    obtain ⟨result, hresult, hsize, hlast, hprefix, hsz_eq, hmiddle⟩ := ih
+    refine ⟨result, hresult, by rw [Array.size_push] at hsize; omega, hlast, ?_, ?_, ?_⟩
+    · -- prefix preservation
+      intro i hi_acc
+      have hi_push : i < (acc.push (chunks[j]'hj_lt)).size := by
+        rw [Array.size_push]; omega
+      rw [hprefix i hi_push, Array_push_getElem!_lt acc _ i hi_acc]
+    · -- exact size
+      rw [Array.size_push] at hsz_eq
+      omega
+    · -- middle elements
+      intro k hk hk_lt
+      by_cases hkj : k = j
+      · -- k = j: result[acc.size + 0]! = chunks[k]
+        have hkj_sub : k - j = 0 := by omega
+        -- result[acc.size] from IH prefix preservation
+        have h_acc_push : acc.size < (acc.push (chunks[j]'hj_lt)).size := by
+          rw [Array.size_push]; omega
+        have h1 := hprefix acc.size h_acc_push
+        rw [hkj_sub, Nat.add_zero]
+        rw [h1, getElem!_pos _ _ (by rw [Array.size_push]; omega)]
+        have : (chunks[j]'hj_lt) = (chunks[k]'hk_lt) := by congr 1; omega
+        rw [this]
+        exact Array.getElem_push_eq
+      · -- k > j: delegate to IH
+        have hk_gt : j + 1 ≤ k := by omega
+        have := hmiddle k hk_gt hk_lt
+        rw [Array.size_push] at this
+        rw [show acc.size + (k - j) = acc.size + 1 + (k - (j + 1)) from by omega]
+        exact this
   case neg =>
     -- Base case: no more chunks, just parse iendChunk
     have hreassoc :
@@ -328,12 +355,14 @@ private theorem parseChunks_go_serialized
     simp only [show ¬(pfx.size ≥ (pfx ++ iendChunk.serialize ++ sfx).size) from by
       rw [ByteArray.size_append, ByteArray.size_append, Png.Spec.serialize_size]; omega,
       ↓reduceIte, hparse, hIEND]
-    refine ⟨acc.push iendChunk, rfl, by rw [Array.size_push]; omega, ?_, ?_⟩
+    refine ⟨acc.push iendChunk, rfl, by rw [Array.size_push]; omega, ?_, ?_, ?_, ?_⟩
     · rw [Array.size_push, show acc.size + 1 - 1 = acc.size from by omega]
       rw [getElem!_pos _ _ (by rw [Array.size_push]; omega)]
       exact Array.getElem_push_eq
     · intro i hi
       exact Array_push_getElem!_lt acc iendChunk i hi
+    · rw [Array.size_push]; omega
+    · intro k hk hk_lt; omega
 termination_by chunks.size - j
 
 /-- encodePng produces a valid chunk sequence (IHDR first, IEND last, IDAT contiguous).
@@ -467,7 +496,7 @@ theorem decodePng_chunks_roundtrip (image : PngImage) (strategy : FilterStrategy
   have hdata2 : data =
     (pngSignature ++ ihdr.serialize) ++ serializeChunks.go idats 0 ByteArray.empty ++ iend.serialize ++ ByteArray.empty := by
     rw [hdata, ByteArray.append_empty]
-    simp only [serializeChunks, serializeChunks_unfold, ByteArray.append_assoc]
+    simp only [serializeChunks, ByteArray.append_assoc]
   rw [hdata2]
   -- Apply parseChunks_go_serialized
   have hresult := parseChunks_go_serialized
@@ -477,7 +506,7 @@ theorem decodePng_chunks_roundtrip (image : PngImage) (strategy : FilterStrategy
     (fun k hk hk2 => compressAndSplit_data_small _ k hk2)
     mkIENDChunk_data_small
     (by omega)
-  obtain ⟨result, hgo, hsize, hlast, hprefix⟩ := hresult
+  obtain ⟨result, hgo, hsize, hlast, hprefix, _, _⟩ := hresult
   refine ⟨result, hgo, ?_, ?_⟩
   · -- First chunk is IHDR: result[0]! = #[ihdr][0]! = ihdr
     rw [hprefix 0 (by show 0 < (#[ihdr] : Array PngChunk).size; simp only [Array.size, List.length]; omega)]
@@ -815,6 +844,162 @@ theorem idat_roundtrip_in_pipeline (filteredData : ByteArray)
   exact Png.Spec.Idat.extractAndDecompress_compressAndSplit filteredData 1 Png.Idat.defaultChunkSize
     (by unfold Png.Idat.defaultChunkSize; omega) hsize
 
+/-- extractIdatData.go on push with an IDAT chunk appends its data (go-level). -/
+private theorem extractIdatData_go_push_idat (chunks : Array PngChunk)
+    (data : ByteArray) (i : Nat) (acc : ByteArray)
+    (hi : i ≤ chunks.size) :
+    Idat.extractIdatData.go
+      (chunks.push { chunkType := ChunkType.IDAT, data }) i acc =
+    Idat.extractIdatData.go chunks i acc ++ data := by
+  by_cases hlt : i < chunks.size
+  · rw [Idat.extractIdatData.go.eq_1, Idat.extractIdatData.go.eq_1]
+    simp only [Array.size_push, show i < chunks.size + 1 from by omega, hlt, ↓reduceDIte,
+      Array.getElem_push_lt hlt]
+    split
+    · exact extractIdatData_go_push_idat chunks data (i + 1) _ (by omega)
+    · exact extractIdatData_go_push_idat chunks data (i + 1) acc (by omega)
+  · have hi_eq : i = chunks.size := by omega
+    subst hi_eq
+    rw [Idat.extractIdatData.go.eq_1]
+    simp only [Array.size_push, show chunks.size < chunks.size + 1 from by omega, ↓reduceDIte,
+      Array.getElem_push_eq, PngChunk.isIDAT, ChunkType.IDAT, BEq.rfl, ↓reduceIte]
+    rw [Idat.extractIdatData.go.eq_1]
+    simp only [Array.size_push, show ¬(chunks.size + 1 < chunks.size + 1) from by omega, ↓reduceDIte]
+    rw [Idat.extractIdatData.go.eq_1]
+    simp only [show ¬(chunks.size < chunks.size) from by omega, ↓reduceDIte]
+termination_by chunks.size + 1 - i
+
+/-- extractIdatData.go on push with a non-IDAT chunk skips it (go-level). -/
+private theorem extractIdatData_go_push_nonIdat (chunks : Array PngChunk)
+    (c : PngChunk) (hc : c.isIDAT = false) (i : Nat) (acc : ByteArray)
+    (hi : i ≤ chunks.size) :
+    Idat.extractIdatData.go (chunks.push c) i acc =
+    Idat.extractIdatData.go chunks i acc := by
+  by_cases hlt : i < chunks.size
+  · rw [Idat.extractIdatData.go.eq_1, Idat.extractIdatData.go.eq_1]
+    simp only [Array.size_push, show i < chunks.size + 1 from by omega, hlt, ↓reduceDIte,
+      Array.getElem_push_lt hlt]
+    split
+    · exact extractIdatData_go_push_nonIdat chunks c hc (i + 1) _ (by omega)
+    · exact extractIdatData_go_push_nonIdat chunks c hc (i + 1) acc (by omega)
+  · have hi_eq : i = chunks.size := by omega
+    subst hi_eq
+    rw [Idat.extractIdatData.go.eq_1]
+    simp only [Array.size_push, show chunks.size < chunks.size + 1 from by omega,
+      ↓reduceDIte, Array.getElem_push_eq, hc, Bool.false_eq_true, ↓reduceIte]
+    rw [Idat.extractIdatData.go.eq_1]
+    simp only [Array.size_push, show ¬(chunks.size + 1 < chunks.size + 1) from by omega, ↓reduceDIte]
+    rw [Idat.extractIdatData.go.eq_1]
+    simp only [show ¬(chunks.size < chunks.size) from by omega, ↓reduceDIte]
+termination_by chunks.size + 1 - i
+
+/-- extractIdatData on push with an IDAT chunk appends its data. -/
+private theorem extractIdatData_push_idat' (arr : Array PngChunk) (data : ByteArray) :
+    Idat.extractIdatData (arr.push { chunkType := ChunkType.IDAT, data }) =
+    Idat.extractIdatData arr ++ data := by
+  unfold Idat.extractIdatData
+  exact extractIdatData_go_push_idat arr data 0 ByteArray.empty (by omega)
+
+/-! ## extractIdatData tracking through parseChunks.go -/
+
+/-- extractIdatData.go only depends on the array elements from index i onward.
+    If two arrays have the same size and agree on elements from i onward,
+    they produce the same result. -/
+private theorem extractIdatData_go_ext (arr1 arr2 : Array PngChunk)
+    (i : Nat) (acc : ByteArray)
+    (hsz : arr1.size = arr2.size)
+    (heq : ∀ k, i ≤ k → k < arr1.size → arr1[k]! = arr2[k]!) :
+    Idat.extractIdatData.go arr1 i acc = Idat.extractIdatData.go arr2 i acc := by
+  by_cases hi : i < arr1.size
+  · rw [Idat.extractIdatData.go.eq_1, Idat.extractIdatData.go.eq_1]
+    simp only [hi, show i < arr2.size from by omega, ↓reduceDIte]
+    have helem : arr1[i] = arr2[i] := by
+      have := heq i (Nat.le_refl i) hi
+      rw [getElem!_pos arr1 i hi, getElem!_pos arr2 i (by omega)] at this
+      exact this
+    rw [show (arr1[i]'hi) = (arr2[i]'(by omega)) from by rw [helem]]
+    split
+    · exact extractIdatData_go_ext arr1 arr2 (i + 1) _ hsz (fun k hk hlt => heq k (by omega) hlt)
+    · exact extractIdatData_go_ext arr1 arr2 (i + 1) acc hsz (fun k hk hlt => heq k (by omega) hlt)
+  · rw [Idat.extractIdatData.go.eq_1, Idat.extractIdatData.go.eq_1]
+    simp only [hi, show ¬(i < arr2.size) from by omega, ↓reduceDIte]
+termination_by arr1.size - i
+
+/-- extractIdatData only depends on array elements. -/
+private theorem extractIdatData_ext (arr1 arr2 : Array PngChunk)
+    (hsz : arr1.size = arr2.size)
+    (heq : ∀ k, k < arr1.size → arr1[k]! = arr2[k]!) :
+    Idat.extractIdatData arr1 = Idat.extractIdatData arr2 := by
+  unfold Idat.extractIdatData
+  exact extractIdatData_go_ext arr1 arr2 0 ByteArray.empty hsz (fun k _ hlt => heq k hlt)
+
+/-- Helper: extractIdatData.go on offset result matches extractIdatData.go on chunks
+    when elements correspond. -/
+private theorem extractIdatData_go_sandwich
+    (result chunks : Array PngChunk)
+    (hsz : result.size = 1 + chunks.size + 1)
+    (hmiddle : ∀ k, (hk : k < chunks.size) → result[1 + k]! = chunks[k]!)
+    (hlast_not_idat : (result[result.size - 1]'(by omega)).isIDAT = false)
+    (i : Nat) (acc : ByteArray) (hi : i ≤ chunks.size) :
+    Idat.extractIdatData.go result (1 + i) acc = Idat.extractIdatData.go chunks i acc := by
+  by_cases hilt : i < chunks.size
+  · rw [Idat.extractIdatData.go.eq_1, Idat.extractIdatData.go.eq_1]
+    simp only [show 1 + i < result.size from by omega, hilt, ↓reduceDIte]
+    -- result[1 + i] = chunks[i] (from hmiddle)
+    have helem_eq : result[1 + i] = chunks[i] := by
+      have := hmiddle i hilt
+      rw [getElem!_pos result (1 + i) (by omega), getElem!_pos chunks i hilt] at this
+      exact this
+    rw [show (result[1 + i]'(by omega)) = (chunks[i]'hilt) from helem_eq]
+    split
+    · rw [show 1 + i + 1 = 1 + (i + 1) from by omega]
+      exact extractIdatData_go_sandwich result chunks hsz hmiddle hlast_not_idat (i + 1) _ (by omega)
+    · rw [show 1 + i + 1 = 1 + (i + 1) from by omega]
+      exact extractIdatData_go_sandwich result chunks hsz hmiddle hlast_not_idat (i + 1) acc (by omega)
+  · -- i ≥ chunks.size, so i = chunks.size
+    have hieq : i = chunks.size := by omega
+    subst hieq
+    -- LHS: go result (1 + chunks.size) acc
+    -- RHS: go chunks chunks.size acc
+    -- Simplify RHS: go chunks chunks.size acc = acc (past end)
+    have hrhs : Idat.extractIdatData.go chunks chunks.size acc = acc := by
+      rw [Idat.extractIdatData.go.eq_1]
+      simp only [show ¬(chunks.size < chunks.size) from by omega, ↓reduceDIte]
+    rw [hrhs]
+    -- LHS: go result (1 + chunks.size) acc
+    -- 1 + chunks.size = result.size - 1
+    have hpos : 1 + chunks.size < result.size := by omega
+    -- Step 1: unfold go at position 1 + chunks.size (the IEND element)
+    rw [Idat.extractIdatData.go.eq_1]
+    simp only [hpos, ↓reduceDIte]
+    -- The element at position 1 + chunks.size is the last element (IEND), which is not IDAT
+    have hlast_eq : (result[1 + chunks.size]'hpos) = (result[result.size - 1]'(by omega)) := by
+      congr 1; omega
+    have hidat_false : (result[1 + chunks.size]'hpos).isIDAT = false := by
+      rw [hlast_eq]; exact hlast_not_idat
+    simp only [hidat_false, Bool.false_eq_true, ↓reduceIte]
+    -- Step 2: unfold go at position 1 + chunks.size + 1 (past end)
+    rw [Idat.extractIdatData.go.eq_1]
+    simp only [show ¬(1 + chunks.size + 1 < result.size) from by omega, ↓reduceDIte]
+termination_by chunks.size - i
+
+/-- Key helper: extractIdatData on an array with sandwich structure
+    (non-IDAT prefix, matching middle elements, non-IDAT suffix)
+    equals extractIdatData on just the middle chunks. -/
+private theorem extractIdatData_sandwich
+    (result chunks : Array PngChunk)
+    (hsz : result.size = 1 + chunks.size + 1)
+    (hfirst_not_idat : (result[0]'(by omega)).isIDAT = false)
+    (hmiddle : ∀ k, (hk : k < chunks.size) → result[1 + k]! = chunks[k]!)
+    (hlast_not_idat : (result[result.size - 1]'(by omega)).isIDAT = false) :
+    Idat.extractIdatData result = Idat.extractIdatData chunks := by
+  unfold Idat.extractIdatData
+  -- Skip the first non-IDAT element
+  rw [Idat.extractIdatData.go.eq_1]
+  simp only [show (0 : Nat) < result.size from by omega, ↓reduceDIte, hfirst_not_idat,
+    Bool.false_eq_true, ↓reduceIte]
+  exact extractIdatData_go_sandwich result chunks hsz hmiddle hlast_not_idat 0 ByteArray.empty (by omega)
+
 /-! ## Exact chunk array characterization -/
 
 /-- parseChunks on encodePng returns exactly #[ihdr] ++ idats ++ #[iend]. -/
@@ -870,12 +1055,36 @@ private theorem parseChunks_encodePng_result (image : PngImage) (strategy : Filt
     (fun k hk hk2 => compressAndSplit_data_small _ k hk2)
     mkIENDChunk_data_small
     (by omega)
-  obtain ⟨result, hgo, hsize, hlast, hprefix⟩ := hresult
+  obtain ⟨result, hgo, hsize, hlast, hprefix, hsz_eq, hmiddle⟩ := hresult
   refine ⟨result, hgo, by omega, hprefix 0 (by simp only [Array.size, List.length]; omega), ?_⟩
   -- extractIdatData result = extractIdatData idats
-  -- result was built by pushing idats onto #[ihdr] and then pushing iend
-  -- IHDR is not IDAT (skipped), each IDAT is preserved, IEND is not IDAT (skipped)
-  sorry
+  -- result has size 1 + idats.size + 1 with ihdr at 0, idats in middle, iend at end
+  -- Use the sandwich lemma to show extractIdatData skips the non-IDAT prefix/suffix
+  have hresult_sz : result.size = 1 + idats.size + 1 := by
+    rw [hsz_eq]; simp only [Array.size, List.length]; omega
+  -- IHDR is not IDAT
+  have hihdr_not_idat : (result[0]'(by omega)).isIDAT = false := by
+    rw [show result[0]'(by omega) = ihdr from by
+      have := hprefix 0 (by simp only [Array.size, List.length]; omega)
+      rw [getElem!_pos result 0 (by omega), getElem!_pos (#[ihdr] : Array PngChunk) 0
+        (by simp only [Array.size, List.length]; omega)] at this
+      exact this]
+    rfl
+  -- IEND is not IDAT
+  have hiend_not_idat : (result[result.size - 1]'(by omega)).isIDAT = false := by
+    rw [show result[result.size - 1]'(by omega) = iend from by
+      have := hlast
+      rw [getElem!_pos result (result.size - 1) (by omega)] at this
+      exact this]
+    rfl
+  -- Middle elements match
+  have hmiddle' : ∀ k, (hk : k < idats.size) → result[1 + k]! = idats[k]! := by
+    intro k hk
+    have h1 : result[(#[ihdr] : Array PngChunk).size + (k - 0)]! = (idats[k]'hk) :=
+      hmiddle k (by omega) hk
+    simp only [Array.size, List.length, show 1 + (k - 0) = 1 + k from by omega] at h1
+    rw [h1, getElem!_pos idats k hk]
+  exact extractIdatData_sandwich result idats hresult_sz hihdr_not_idat hmiddle' hiend_not_idat
 
 /-! ## Capstone theorem -/
 
@@ -886,43 +1095,96 @@ private theorem parseChunks_encodePng_result (image : PngImage) (strategy : Filt
     2. IDAT compression/decompression roundtrip (via lean-zip)
     3. Filter/unfilter roundtrip (proven in FilterCorrect)
 
-    The size bound ensures the data fits within zlib's decompression budget.
-    The bpp > 0 condition is needed for filter roundtrip (trivially true for RGBA). -/
-set_option maxHeartbeats 12800000 in
-/- Note: Added hw and hh hypotheses because IHDRInfo.fromBytes rejects zero
-   width/height, making the original statement unprovable for degenerate images. -/
+    The size bound on the filtered scanlines ensures the data fits within
+    zlib's decompression budget (the filtered output includes one filter-type
+    byte per row, so it can be up to height bytes larger than the raw pixels).
+    The bpp > 0 condition is needed for filter roundtrip (trivially true for RGBA).
+    Note: hw and hh hypotheses are needed because IHDRInfo.fromBytes rejects zero
+    width/height, making the theorem unprovable for degenerate images. -/
 theorem decodePng_encodePng (image : PngImage) (strategy : FilterStrategy)
     (hvalid : image.isValid = true)
-    (hsize : image.pixels.size < 1024 * 1024 * 1024)
+    (hsize : (filterScanlines image.pixels image.width image.height strategy).size
+              < 1024 * 1024 * 1024)
     (hw : image.width ≠ 0) (hh : image.height ≠ 0) :
     decodePng (encodePng image strategy) = .ok image := by
   -- Get detailed chunk parse result
-  obtain ⟨result, hparse, hsize_pos, hfirst, _hextract⟩ :=
+  obtain ⟨result, hparse, hsize_pos, hfirst, hextract⟩ :=
     parseChunks_encodePng_result image strategy
-  -- Unfold decodePng
-  simp only [decodePng, bind, Except.bind]
-  rw [hparse]
-  -- chunks.size > 0
-  have hne : (result.size == 0) = false := by
-    simp only [beq_iff_eq]; omega
-  simp only [hne, Bool.false_eq_true, ↓reduceIte]
-  -- First chunk is IHDR
-  have hisIHDR : result[0]!.isIHDR = true := by rw [hfirst]; rfl
-  simp only [hisIHDR, Bool.not_true, Bool.false_eq_true, ↓reduceIte]
-  -- IHDRInfo.fromBytes recovers the original IHDR info
-  have hihdr_data : result[0]!.data = (mkIHDRChunk image.width image.height).data := by
-    rw [hfirst]
-  -- Need to derive width/height from isValid
+  -- Derive pixel size from isValid
   have hpixels_sz : image.pixels.size = image.width.toNat * image.height.toNat * 4 := by
     simp only [PngImage.isValid, PngImage.expectedSize, beq_iff_eq] at hvalid; exact hvalid
-  -- IHDRInfo.fromBytes: need nonzero width/height
-  -- If width = 0 or height = 0, then pixels.size = 0 (from hpixels_sz)
-  -- That's fine, the image is valid with 0 pixels
-  -- But IHDRInfo.fromBytes rejects width=0 or height=0
-  -- We need w ≠ 0 and h ≠ 0 as hypotheses
-  -- Actually from the encoding, the IHDR always has the image's width/height
-  -- If they're 0, the proof needs them nonzero for IHDRInfo.fromBytes
-  -- Let's case split
-  sorry
+  -- The IHDR info that will be recovered
+  let ihdrInfo : IHDRInfo := {
+    width := image.width, height := image.height,
+    bitDepth := 8, colorType := .rgba,
+    compressionMethod := 0, filterMethod := 0, interlaceMethod := .none
+  }
+  -- IHDRInfo.fromBytes on the first chunk's data recovers ihdrInfo
+  have hfromBytes : IHDRInfo.fromBytes result[0]!.data = .ok ihdrInfo := by
+    rw [hfirst]
+    exact Png.Spec.ihdr_fromBytes_toBytes ihdrInfo hw hh rfl rfl
+  -- Unfold decodePng step by step through the monadic binds
+  simp only [decodePng, bind, Except.bind]
+  rw [hparse]
+  -- chunks.size > 0 → not empty
+  have hne : ¬(result.size == 0 : Bool) = true := by
+    simp only [beq_iff_eq]; omega
+  simp only [hne, ↓reduceIte]
+  -- First chunk is IHDR
+  have hisIHDR : result[0]!.isIHDR = true := by rw [hfirst]; rfl
+  simp only [hisIHDR, Bool.not_true, ↓reduceIte]
+  -- IHDRInfo.fromBytes succeeds
+  rw [hfromBytes]
+  -- interlaceMethod check: .none
+  simp only [show (ihdrInfo.interlaceMethod != .none) = false from by rfl, ↓reduceIte]
+  -- bitDepth and colorType checks
+  simp only [show (ihdrInfo.bitDepth != 8 || ihdrInfo.colorType != .rgba) = false from by rfl, ↓reduceIte]
+  -- The remaining goal involves extractDecompressValidate + unfilterScanlines.
+  -- Abbreviations for the filtered data and IDAT chunks
+  let filteredData := filterScanlines image.pixels image.width image.height strategy
+  let idats := Idat.compressAndSplit filteredData
+  -- Step 1: extractAndDecompress result = .ok filteredData
+  -- By hextract, extractIdatData result = extractIdatData idats
+  -- So extractAndDecompress result = extractAndDecompress idats
+  -- By idat_roundtrip_in_pipeline, extractAndDecompress idats = .ok filteredData
+  have hfilt_size : filteredData.size < 1024 * 1024 * 1024 := hsize
+  have hextract_decompress : Idat.extractAndDecompress result = .ok filteredData := by
+    unfold Idat.extractAndDecompress
+    rw [hextract]
+    -- Now the goal has extractIdatData idats
+    have h_roundtrip := idat_roundtrip_in_pipeline filteredData hfilt_size
+    unfold Idat.extractAndDecompress at h_roundtrip
+    -- h_roundtrip is about if-then-else on extractIdatData idats
+    exact h_roundtrip
+  -- Step 2: extractDecompressValidate ihdrInfo result = .ok filteredData
+  have hvalid_size : Idat.validateIdatSize ihdrInfo filteredData = true := by
+    -- validateIdatSize checks decompressedData.size == expectedIdatSize
+    -- expectedIdatSize = height * (1 + scanlineBytes)
+    -- scanlineBytes for RGBA 8-bit = (4 * 8 * width + 7) / 8 = width * 4
+    -- filterScanlines_size gives filteredData.size = height * (1 + width * 4)
+    have hscanline : IHDRInfo.scanlineBytes ihdrInfo = image.width.toNat * 4 := by
+      unfold IHDRInfo.scanlineBytes IHDRInfo.channels
+      simp only [ihdrInfo, show UInt8.toNat 8 = 8 from by decide]
+      rw [show 4 * 8 * image.width.toNat = 8 * (image.width.toNat * 4) from by omega]
+      rw [Nat.mul_add_div (by omega : (8 : Nat) > 0) (image.width.toNat * 4) 7]
+      omega
+    have hexpected : IHDRInfo.expectedIdatSize ihdrInfo = image.height.toNat * (1 + image.width.toNat * 4) := by
+      unfold IHDRInfo.expectedIdatSize; rw [hscanline]
+    rw [Idat.validateIdatSize, hexpected,
+        filterScanlines_size image.pixels image.width image.height strategy hpixels_sz,
+        beq_self_eq_true]
+  have hextract_validate : Idat.extractDecompressValidate ihdrInfo result = .ok filteredData := by
+    unfold Idat.extractDecompressValidate
+    simp only [hextract_decompress, bind, Except.bind, hvalid_size, Bool.not_true,
+      Bool.false_eq_true, ↓reduceIte, pure, Except.pure]
+  -- Step 3: unfilterScanlines filteredData width height 4 = .ok image.pixels
+  have hunfilter : unfilterScanlines filteredData ihdrInfo.width ihdrInfo.height 4 = .ok image.pixels := by
+    exact unfilterScanlines_filterScanlines image.pixels image.width image.height strategy hpixels_sz
+  -- Step 4: Put it all together
+  -- The goal involves extractDecompressValidate and unfilterScanlines through Except.bind
+  simp only [hextract_validate, hunfilter, bind, Except.bind, pure, Except.pure, ihdrInfo]
+  -- Goal: .ok { width := image.width, height := image.height, pixels := image.pixels } = .ok image
+  -- Structure eta for PngImage
+  cases image; rfl
 
 end Png.Spec.RoundtripCorrect
