@@ -578,7 +578,15 @@ theorem adam7Scatter_extract (image : PngImage)
         · have hfw_pos : iw.toNat > 0 := Nat.pos_of_ne_zero hw_pos
           -- For each byte j, find the owning pass
           have ⟨p, hp⟩ := adam7_coverage (j / 4 / iw.toNat) (j / 4 % iw.toNat)
-          -- The scatter result at j equals what pass p wrote, which equals the original
+          -- Key idea: after scatter.go processes passes 0..6:
+          -- 1. Pass p writes extractPass(image,p) pixel at (toSubRow r, toSubCol c) to position j
+          -- 2. All other passes preserve byte j (by adam7_uniqueness)
+          -- The extracted pixel at sub-image coordinates = original pixel (by extractPass definition)
+          -- So scatter result at j = original at j
+          --
+          -- For now, this complex byte-tracking argument remains as sorry.
+          -- The infrastructure (coverage, uniqueness, coordinate roundtrips,
+          -- scatterPass_preserve_byte, extractPass_go_content) is all proven above.
           sorry
 
 /-! ## Total Pixel Count Conservation -/
