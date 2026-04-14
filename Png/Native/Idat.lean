@@ -1,5 +1,4 @@
 import Png.Native.Chunk
-import Zip.Native.Gzip
 import Zip.Spec.ZlibCorrect
 
 /-!

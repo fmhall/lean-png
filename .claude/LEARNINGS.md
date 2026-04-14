@@ -1,6 +1,6 @@
 # Agent Learnings
 
-Hard-won lessons from ~15 agent sessions building lean-png. **Read this
+Hard-won lessons from ~30 agent sessions building lean-png. **Read this
 before starting work.** It will save you hours.
 
 ## 1. Read the skills and dependencies FIRST
@@ -50,7 +50,7 @@ entire session until it adopted this structure.
 - `unfilterScanlines` — same
 - `encodePng` — same
 - `validChunkSequence` — same
-- `parseChunks` — still not refactored, blocks capstone proof
+- `parseChunks` — refactored to WF `go` (was blocking capstone proof)
 
 **Rule**: Never write `for`, `while`, `Id.run do`, or `mut` in any
 function that will appear in a theorem statement. Use explicit recursion
@@ -125,23 +125,27 @@ Quick reference for common proof patterns:
 | ByteArray equality | `ByteArray.ext_getElem!` + element-wise |
 | WF function case split | `unfold f; split` (NOT `simp only [f]` — loops!) |
 
-## 9. What's still hard
+## 9. What was hard (and how it was solved)
 
-The capstone `decodePng_encodePng` remains unproven. The blocker is
-`unfilterScanlines_filterScanlines` — proving that unfiltering a flat
-concatenated buffer of filtered scanlines recovers the original pixels.
-This requires:
+The capstone `decodePng_encodePng` is now **fully proven**. The hardest
+sub-problems and their solutions:
 
-1. Content characterization of `filterScanlines.go` output (which bytes
-   are filter-type bytes, which are filtered row data)
-2. Showing `extract` on the filtered buffer at the right offsets recovers
-   each filtered row
-3. Composing with `unfilterRow_filterRow` per row
-4. Induction threading the prior row through both sides
+**`unfilterScanlines_filterScanlines`**: Treat the filtered buffer as a
+fixed object, prove by induction on rows that each unfilter step recovers
+the original row. Key: both go-loops thread the same `priorRow`, so the
+IH applies directly. (~200 lines)
 
-The building blocks exist (prefix preservation, filter-byte position
-lemma) but the full composition is substantial proof engineering —
-comparable to lean-zip's block framing proofs.
+**`parseChunk_at_offset`**: Parsing a chunk at arbitrary offset in a
+concatenated stream. Solved by lifting each field-access lemma
+(`readUInt32BE`, `extract`, CRC) to work at offset `pfx.size`. (~100 lines)
+
+**`parseChunks_go_serialized`**: Stepping `parseChunks.go` through a
+sequence of serialized chunks. Had to strengthen the IH to track middle
+elements (not just prefix preservation). (~100 lines)
+
+**`extractIdatData` tracking**: Showing that `extractIdatData` on the
+parsed array equals `extractIdatData` on the original IDAT array. Solved
+via a "sandwich lemma" showing extraction skips non-IDAT prefix/suffix.
 
 ## 10. Agent prompt quality matters enormously
 
