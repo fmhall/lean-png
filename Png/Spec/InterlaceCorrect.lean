@@ -235,6 +235,291 @@ private theorem setPixelAt_size (buf : ByteArray) (idx : Nat)
   · rw [ByteArray.size_set!, ByteArray.size_set!, ByteArray.size_set!, ByteArray.size_set!]
   · rfl
 
+/-! ### Helper lemmas for scatter/extract roundtrip -/
+
+-- Nat arithmetic helpers for div/mod with multiplication
+private theorem mul_add_mod_eq (a b n : Nat) (h : b < n) : (a * n + b) % n = b := by
+  rw [Nat.mul_comm a n, Nat.mul_add_mod, Nat.mod_eq_of_lt h]
+
+private theorem mul_add_div_eq (a b n : Nat) (hn : n > 0) (h : b < n) :
+    (a * n + b) / n = a := by
+  rw [show a * n + b = b + n * a from by rw [Nat.mul_comm]; omega,
+      Nat.add_mul_div_left _ _ hn, Nat.div_eq_of_lt h, Nat.zero_add]
+
+-- setPixelAt doesn't affect bytes outside [idx, idx+3]
+private theorem setPixelAt_getElem!_ne (buf : ByteArray) (idx j : Nat)
+    (pixel : UInt8 × UInt8 × UInt8 × UInt8) (hne : j < idx ∨ j > idx + 3) :
+    (setPixelAt buf idx pixel)[j]! = buf[j]! := by
+  by_cases h : idx + 3 < buf.size
+  · unfold setPixelAt; simp only [show idx + 3 < buf.size from h, ↓reduceIte]
+    rw [ByteArray.getElem!_set!_ne _ (idx + 3) j _ (by omega),
+        ByteArray.getElem!_set!_ne _ (idx + 2) j _ (by omega),
+        ByteArray.getElem!_set!_ne _ (idx + 1) j _ (by omega),
+        ByteArray.getElem!_set!_ne _ idx j _ (by omega)]
+  · unfold setPixelAt; simp only [show ¬(idx + 3 < buf.size) from h, ↓reduceIte]
+
+-- scatterPass.go preserves byte j when no iteration writes to j's 4-byte group
+private theorem scatterPass_go_preserve (buf : ByteArray) (fullWidth : Nat)
+    (subPixels : ByteArray) (subW : Nat) (p : Fin 7) (i total : Nat) (j : Nat)
+    (hj_ne : ∀ k, i ≤ k → k < total →
+      j / 4 ≠ (fromSubRow p (k / subW) * fullWidth +
+               fromSubCol p (if subW > 0 then k % subW else 0))) :
+    (scatterPass.go buf fullWidth subPixels subW p i total)[j]! = buf[j]! := by
+  unfold scatterPass.go; split; · rfl
+  · rename_i hlt; have hi : i < total := by omega
+    have : total - (i + 1) < total - i := by omega
+    rw [scatterPass_go_preserve _ _ _ _ _ (i + 1) _ j
+        (fun k hk_lo hk_hi => hj_ne k (by omega) hk_hi),
+        setPixelAt_getElem!_ne _ _ _ _ (by have := hj_ne i (Nat.le_refl i) hi; omega)]
+termination_by total - i
+
+-- scatterPass.go preserves buffer size
+private theorem scatterPass_go_size (buf : ByteArray) (fullWidth : Nat) (subPixels : ByteArray)
+    (subW : Nat) (p : Fin 7) (i total : Nat) :
+    (scatterPass.go buf fullWidth subPixels subW p i total).size = buf.size := by
+  unfold scatterPass.go; split; · rfl
+  · have : total - (i + 1) < total - i := by omega
+    rw [scatterPass_go_size, setPixelAt_size]
+termination_by total - i
+
+private theorem scatterPass_size (buf : ByteArray) (fullWidth : Nat)
+    (subImage : PngImage) (p : Fin 7) :
+    (scatterPass buf fullWidth subImage p).size = buf.size := by
+  simp only [scatterPass]; exact scatterPass_go_size _ _ _ _ _ _ _
+
+-- adam7Scatter.go preserves buffer size
+private theorem adam7Scatter_go_size (subImages : Array PngImage) (buf : ByteArray)
+    (fullWidth : Nat) (p : Nat) :
+    (adam7Scatter.go subImages buf fullWidth p).size = buf.size := by
+  unfold adam7Scatter.go; split
+  · rename_i h; split
+    · have : 7 - (p + 1) < 7 - p := by omega
+      rw [adam7Scatter_go_size, scatterPass_size]
+    · have : 7 - (p + 1) < 7 - p := by omega
+      exact adam7Scatter_go_size _ _ _ _
+  · rfl
+termination_by 7 - p
+
+-- Coordinate mod lemmas: fromSubRow/Col produce pass-p coordinates
+private theorem fromSubRow_mod (p : Fin 7) (sr : Nat) :
+    (fromSubRow p sr) % adam7RowStride p = adam7RowStart p := by
+  simp only [fromSubRow]
+  rw [Nat.mul_comm, Nat.add_comm, Nat.add_mul_mod_self_left,
+      Nat.mod_eq_of_lt (adam7RowStart_lt_stride p)]
+
+private theorem fromSubCol_mod (p : Fin 7) (sc : Nat) :
+    (fromSubCol p sc) % adam7ColStride p = adam7ColStart p := by
+  simp only [fromSubCol]
+  rw [Nat.mul_comm, Nat.add_comm, Nat.add_mul_mod_self_left,
+      Nat.mod_eq_of_lt (adam7ColStart_lt_stride p)]
+
+-- fromSubCol produces coordinates within bounds
+private theorem fromSubCol_lt (p : Fin 7) (sc fullWidth : Nat)
+    (hsc : sc < passWidth p fullWidth) :
+    fromSubCol p sc < fullWidth := by
+  simp only [fromSubCol, passWidth] at *; split at hsc; · omega
+  · rw [Nat.lt_div_iff_mul_lt (adam7ColStride_pos p)] at hsc; omega
+
+-- fromSubRow produces coordinates within bounds
+private theorem fromSubRow_lt (p : Fin 7) (sr fullHeight : Nat)
+    (hsr : sr < passHeight p fullHeight) :
+    fromSubRow p sr < fullHeight := by
+  simp only [fromSubRow, passHeight] at *; split at hsr; · omega
+  · rw [Nat.lt_div_iff_mul_lt (adam7RowStride_pos p)] at hsr; omega
+
+-- scatterPass preserves byte j when j's pixel doesn't belong to pass p
+private theorem scatterPass_preserve_byte (buf : ByteArray) (fullWidth : Nat)
+    (subImage : PngImage) (p : Fin 7) (j : Nat)
+    (hnotpass : ¬(j / 4 / fullWidth % adam7RowStride p = adam7RowStart p ∧
+                  j / 4 % fullWidth % adam7ColStride p = adam7ColStart p))
+    (hfw_pos : fullWidth > 0)
+    (hsw : subImage.width.toNat = passWidth p fullWidth) :
+    (scatterPass buf fullWidth subImage p)[j]! = buf[j]! := by
+  simp only [scatterPass]
+  apply scatterPass_go_preserve
+  intro k _ hk_total
+  intro heq
+  apply hnotpass
+  have hsubW_pos : subImage.width.toNat > 0 := by
+    have : subImage.width.toNat * subImage.height.toNat ≠ 0 := by omega
+    exact Nat.pos_of_ne_zero (Nat.ne_zero_of_mul_ne_zero_left this)
+  simp only [show subImage.width.toNat > 0 from hsubW_pos, ↓reduceIte] at heq
+  have hsc_lt : fromSubCol p (k % subImage.width.toNat) < fullWidth :=
+    fromSubCol_lt p _ fullWidth (by rw [← hsw]; exact Nat.mod_lt _ hsubW_pos)
+  exact ⟨by rw [heq, mul_add_div_eq _ _ _ hfw_pos hsc_lt]; exact fromSubRow_mod p _,
+         by rw [heq, mul_add_mod_eq _ _ _ hsc_lt]; exact fromSubCol_mod p _⟩
+
+-- extractPass.go size characterization
+private theorem extractPass_go_size (srcPixels : ByteArray) (srcWidth : Nat) (p : Fin 7)
+    (subW i total : Nat) (out : ByteArray) (hle : i ≤ total) :
+    (extractPass.go srcPixels srcWidth p subW i total out).size =
+    out.size + 4 * (total - i) := by
+  unfold extractPass.go; split; · omega
+  · have : total - (i + 1) < total - i := by omega
+    rw [extractPass_go_size _ _ _ _ _ _ _ (by omega)]
+    simp only [ByteArray.size_push]; omega
+termination_by total - i
+
+-- extractPass.go preserves prefix bytes
+private theorem extractPass_go_prefix (srcPixels : ByteArray) (srcWidth : Nat) (p : Fin 7)
+    (subW i total : Nat) (out : ByteArray) (j : Nat) (hj : j < out.size) :
+    (extractPass.go srcPixels srcWidth p subW i total out)[j]! = out[j]! := by
+  unfold extractPass.go; split; · rfl
+  · have : total - (i + 1) < total - i := by omega
+    rw [extractPass_go_prefix _ _ _ _ _ _ _ _
+        (by simp only [ByteArray.size_push]; omega)]
+    rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+        ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+        ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+        ByteArray.push_getElem!_lt _ _ _ hj]
+termination_by total - i
+
+-- extractPass.go content: byte at position out.size + 4*(k-i) + ch
+-- equals the corresponding byte from the getPixel result
+private theorem extractPass_go_content (srcPixels : ByteArray) (srcWidth : Nat) (p : Fin 7)
+    (subW i total : Nat) (out : ByteArray)
+    (k : Nat) (hk_lo : i ≤ k) (hk_hi : k < total)
+    (ch : Fin 4)
+    (hsubW_pos : subW > 0) :
+    let sr := k / subW; let sc := k % subW
+    let fullRow := fromSubRow p sr; let fullCol := fromSubCol p sc
+    let idx := 4 * (fullRow * srcWidth + fullCol)
+    (extractPass.go srcPixels srcWidth p subW i total out)[out.size + 4 * (k - i) + ch.val]! =
+    if h : idx + 3 < srcPixels.size then
+      srcPixels[idx + ch.val]'(by omega)
+    else (0 : UInt8) := by
+  simp only []
+  unfold extractPass.go
+  split
+  · omega
+  · rename_i hlt
+    have hi : i < total := by omega
+    by_cases hki : k = i
+    · subst hki
+      simp only [Nat.sub_self, Nat.mul_zero, Nat.zero_add]
+      -- byte is in the prefix pushed at this iteration
+      rw [extractPass_go_prefix _ _ _ _ _ _ _ _
+          (by simp only [ByteArray.size_push]; omega)]
+      -- getPixel unfolds to a 4-tuple read
+      simp only [getPixel]
+      split
+      · rename_i hbnd
+        -- The 4 pushed bytes are the 4 components of the pixel
+        -- ch determines which push we read
+        -- Push order: pixel.1, pixel.2.1, pixel.2.2.1, pixel.2.2.2
+        -- out.push a |>.push b |>.push c |>.push d
+        -- Index out.size + ch.val reads the ch-th pushed byte
+        simp only [show subW > 0 from hsubW_pos, ↓reduceIte]
+        match ch with
+        | ⟨0, _⟩ =>
+          simp only [Nat.add_zero]
+          rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_eq]
+          rfl
+        | ⟨1, _⟩ =>
+          rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_eq]
+          rfl
+        | ⟨2, _⟩ =>
+          rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_eq]
+          rfl
+        | ⟨3, _⟩ =>
+          rw [ByteArray.push_getElem!_eq]
+          rfl
+      · rename_i hbnd
+        simp only [show subW > 0 from hsubW_pos, ↓reduceIte]
+        match ch with
+        | ⟨0, _⟩ =>
+          simp only [Nat.add_zero]
+          rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_eq]
+        | ⟨1, _⟩ =>
+          rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_eq]
+        | ⟨2, _⟩ =>
+          rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega),
+              ByteArray.push_getElem!_eq]
+        | ⟨3, _⟩ =>
+          rw [ByteArray.push_getElem!_eq]
+    · -- k > i: byte is in the recursive call
+      have hki' : i + 1 ≤ k := by omega
+      have : total - (i + 1) < total - i := by omega
+      rw [show out.size + 4 * (k - i) + ch.val =
+           (out.push _ |>.push _ |>.push _ |>.push _).size + 4 * (k - (i + 1)) + ch.val
+         from by simp only [ByteArray.size_push]; omega]
+      exact extractPass_go_content _ _ _ _ _ _ _ _ hki' hk_hi ch hsubW_pos
+termination_by total - i
+
+-- Convenience: the if condition in scatterPass.go's pixel read
+-- When subW > 0, the `if subW > 0` simplifies
+private theorem dite_subW_pos {subW : Nat} (hpos : subW > 0) (k : Nat) :
+    (if subW > 0 then k % subW else 0) = k % subW := by
+  simp only [show subW > 0 from hpos, ↓reduceIte]
+
+-- The key combined lemma: after scatterPass for pass p on extractPass output,
+-- byte j belonging to pass p has the correct value from the original image.
+-- This requires careful tracking through both extractPass and scatterPass.
+
+-- First, isValid gives buffer size
+private theorem isValid_pixels_size (img : PngImage) (h : img.isValid = true) :
+    img.pixels.size = img.width.toNat * img.height.toNat * 4 := by
+  simp only [PngImage.isValid, PngImage.expectedSize, beq_iff_eq] at h; exact h
+
+-- extractPass produces correctly sized sub-images
+private theorem extractPass_pixels_size (image : PngImage) (p : Fin 7) :
+    (extractPass image p).pixels.size =
+    passWidth p image.width.toNat * passHeight p image.height.toNat * 4 := by
+  simp only [extractPass]
+  rw [extractPass_go_size _ _ _ _ _ _ _ (Nat.le_refl 0)]
+  simp only [ByteArray.size, Array.size_empty, Nat.zero_add, Nat.sub_zero]
+  omega
+
+-- Nat.toUInt32.toNat roundtrip when value fits in UInt32
+private theorem toUInt32_toNat (n : Nat) (h : n < 2 ^ 32) : n.toUInt32.toNat = n := by
+  simp only [Nat.toUInt32, UInt32.toNat, UInt32.ofNat, BitVec.ofNat, BitVec.toNat]
+  exact Nat.mod_eq_of_lt h
+
+-- extractPass produces correct width/height fields
+private theorem extractPass_width (image : PngImage) (p : Fin 7) :
+    (extractPass image p).width.toNat = passWidth p image.width.toNat := by
+  show (passWidth p image.width.toNat).toUInt32.toNat = passWidth p image.width.toNat
+  exact toUInt32_toNat _ (by have := passWidth_le p image.width.toNat; have := image.width.val.isLt; omega)
+
+private theorem extractPass_height (image : PngImage) (p : Fin 7) :
+    (extractPass image p).height.toNat = passHeight p image.height.toNat := by
+  show (passHeight p image.height.toNat).toUInt32.toNat = passHeight p image.height.toNat
+  exact toUInt32_toNat _ (by have := passHeight_le p image.height.toNat; have := image.height.val.isLt; omega)
+
+-- adam7Extract produces correctly sized sub-images
+private theorem adam7Extract_getElem (image : PngImage) (p : Fin 7)
+    (hs : (adam7Extract image).size = 7) :
+    (adam7Extract image)[p.val]'(by rw [hs]; exact p.isLt) = extractPass image p := by
+  simp only [adam7Extract]
+  -- Unfold 7 times like adam7Extract_size
+  unfold adam7Extract.go; simp only [show (0 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (1 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (2 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (3 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (4 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (5 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (6 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show ¬(7 : Nat) < 7 from by omega, ↓reduceDIte]
+  match p with
+  | ⟨0, _⟩ => simp only [Array.push_getElem_eq, Array.getElem_push_lt]
+  | ⟨1, _⟩ => simp only [Array.push_getElem_eq, Array.getElem_push_lt]
+  | ⟨2, _⟩ => simp only [Array.push_getElem_eq, Array.getElem_push_lt]
+  | ⟨3, _⟩ => simp only [Array.push_getElem_eq, Array.getElem_push_lt]
+  | ⟨4, _⟩ => simp only [Array.push_getElem_eq, Array.getElem_push_lt]
+  | ⟨5, _⟩ => simp only [Array.push_getElem_eq, Array.getElem_push_lt]
+  | ⟨6, _⟩ => simp only [Array.push_getElem_eq, Array.getElem_push_lt]
+
 /-- Scattering the extracted sub-images back into a full image
     recovers the original image. -/
 theorem adam7Scatter_extract (image : PngImage)

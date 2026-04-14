@@ -52,9 +52,11 @@ in these statements -- they are fully proven.
 
 ### Filter roundtrip (all 5 PNG filter types)
 
-PNG defines 5 scanline filters (None, Sub, Up, Average, Paeth). Each
-has the form `filtered[i] = raw[i] - predictor(context)` mod 256.
-We prove that unfiltering inverts filtering for every filter type:
+PNG compresses better when each row of pixels is "filtered" first --
+subtracting a predicted value from each byte so the differences are
+small. The decoder must reverse this exactly to recover the original
+pixels. We prove that reversing the filter always gives back the
+original row, for all five filter types the PNG spec defines:
 
 ```lean
 -- Png/Spec/FilterCorrect.lean
@@ -91,8 +93,10 @@ values on both sides.
 
 ### Chunk framing roundtrip
 
-PNG chunks are `[length : 4 bytes][type : 4 bytes][data][crc : 4 bytes]`.
-We prove parsing inverts serialization:
+A PNG file is made up of "chunks" -- labeled packets of data with a
+checksum for integrity. We prove that writing a chunk to bytes and
+reading it back always recovers the original chunk, including
+correct checksum validation:
 
 ```lean
 -- Png/Spec/ChunkCorrect.lean
@@ -116,8 +120,10 @@ theorem ihdr_fromBytes_toBytes (ihdr : IHDRInfo)
 
 ### IDAT compression roundtrip
 
-IDAT chunks carry zlib-compressed pixel data. The roundtrip delegates
-directly to lean-zip's proven DEFLATE:
+The actual pixel data in a PNG is compressed using zlib (a variant of
+the DEFLATE algorithm used in ZIP files). We prove that compressing
+the data and decompressing it gives back exactly the original bytes,
+by reusing lean-zip's verified compression library:
 
 ```lean
 -- Png/Spec/IdatCorrect.lean
@@ -143,8 +149,11 @@ theorem extractAndDecompress_compressAndSplit (rawData : ByteArray)
 
 ### Adam7 interlacing
 
-Adam7 interlacing splits an image into 7 sub-images at different
-sampling rates. We prove:
+Interlaced PNGs display a low-resolution preview first, then
+progressively refine to full resolution. This works by splitting
+the image into 7 sub-images at different sampling rates. We prove
+that this splitting covers every pixel exactly once and that the
+coordinate math is correct:
 
 **Coverage** -- every pixel belongs to exactly one pass:
 
@@ -183,8 +192,10 @@ theorem adam7_total_pixels (width height : Nat) :
 
 ### Capstone: encode/decode roundtrip (PROVEN)
 
-The top-level roundtrip theorem is fully machine-checked with zero
-`sorry`:
+The main result: if you encode an image as PNG and decode it back,
+you get exactly the original image. This chains all the building
+blocks above into one end-to-end guarantee, machine-checked with
+zero `sorry`:
 
 ```lean
 -- Png/Spec/RoundtripCorrect.lean
