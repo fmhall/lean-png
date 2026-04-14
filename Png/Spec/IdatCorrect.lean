@@ -1,4 +1,5 @@
 import Png.Native.Idat
+import Png.Util.ByteArray
 import Zip.Spec.ZlibCorrect
 
 /-!
@@ -125,11 +126,7 @@ private theorem extractIdatData_push_idat (arr : Array PngChunk) (data : ByteArr
   exact extractIdatData_go_push_idat arr data 0 ByteArray.empty (by omega)
 
 /-- Helper: a ByteArray with size 0 is empty. -/
-private theorem ByteArray.eq_empty_of_size (z : ByteArray) (hz : z.size = 0) :
-    z = ByteArray.empty := by
-  apply ByteArray.ext
-  simp only [ByteArray.data_empty]
-  exact Array.eq_empty_of_size_eq_zero hz
+-- ByteArray.eq_empty_of_size is now in Png.Util.ByteArray
 
 /-! ## Extraction correctness -/
 

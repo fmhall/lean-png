@@ -1,5 +1,5 @@
 import Png.Native.Chunk
-import ZipForStd.ByteArray
+import Png.Util.ByteArray
 
 /-!
 # Chunk Framing Correctness Specifications
@@ -157,9 +157,7 @@ theorem parseChunk_serialize (c : PngChunk) (hlen : c.data.size < 2 ^ 31) :
 
 /-! ## IHDR roundtrip helpers -/
 
-private theorem ByteArray_getElem!_eq_getElem (ba : ByteArray) (i : Nat) (h : i < ba.size) :
-    ba[i]! = ba[i] := by
-  simp only [GetElem?.getElem!, decidableGetElem?, h, ↓reduceDIte]
+-- ByteArray.getElem!_eq_getElem is now in Png.Util.ByteArray
 
 private theorem ihdr_prefix_size (ihdr : IHDRInfo) :
     (writeUInt32BE ihdr.width ++ writeUInt32BE ihdr.height).size = 8 := by
@@ -170,7 +168,7 @@ private theorem ihdr_toBytes_tail (ihdr : IHDRInfo) (k : Nat) (hk : 8 ≤ k) (hk
       (ByteArray.mk #[ihdr.bitDepth, ihdr.colorType.toUInt8, ihdr.compressionMethod,
         ihdr.filterMethod, ihdr.interlaceMethod.toUInt8])[k - 8]'(by
         simp only [ByteArray.size, Array.size, List.length]; omega) := by
-  rw [ByteArray_getElem!_eq_getElem _ _ (by
+  rw [ByteArray.getElem!_eq_getElem _ _ (by
     simp only [IHDRInfo.toBytes, writeUInt32BE]
     simp only [ByteArray.size_append]
     simp only [ByteArray.size, Array.size, List.length]; omega)]
@@ -371,7 +369,80 @@ theorem validChunkSequence_basic
     (hMiddle : ∀ c ∈ middle.toList, c.isIDAT = false)
     (hNonemptyIDAT : idats.size > 0) :
     validChunkSequence (#[ihdr] ++ middle ++ idats ++ #[iend]) = true := by
-  sorry
+  have hsz1 : (#[ihdr] : Array PngChunk).size = 1 := rfl
+  have hsze : (#[iend] : Array PngChunk).size = 1 := rfl
+  have hihdr_not_idat := isIHDR_not_isIDAT ihdr hIHDR
+  have hiend_not_idat := isIEND_not_isIDAT iend hIEND
+  have hnoIdat_prefix : ∀ j, 0 ≤ j → j < 1 + middle.size →
+      (hj : j < (#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk).size) →
+      ((#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk)[j]).isIDAT = false := by
+    intro j _ hjm hjs
+    rw [Array.getElem_append_left (by simp only [Array.size_append, hsz1]; omega : j < (#[ihdr] ++ middle ++ idats).size)]
+    rw [Array.getElem_append_left (by simp only [Array.size_append, hsz1]; omega : j < (#[ihdr] ++ middle).size)]
+    by_cases hj0 : j = 0
+    · subst hj0; rw [Array.getElem_append_left (by simp only [hsz1]; omega : (0 : Nat) < (#[ihdr] : Array PngChunk).size)]
+      exact hihdr_not_idat
+    · rw [Array.getElem_append_right (by simp only [hsz1]; omega : (#[ihdr] : Array PngChunk).size ≤ j)]
+      simp only [hsz1]
+      exact hMiddle _ (Array.getElem_mem_toList ..)
+  have hisIdat_range : ∀ j, 1 + middle.size ≤ j → j < 1 + middle.size + idats.size →
+      (hj : j < (#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk).size) →
+      ((#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk)[j]).isIDAT = true := by
+    intro j hj1 hjm hjs
+    rw [Array.getElem_append_left (by simp only [Array.size_append, hsz1]; omega : j < (#[ihdr] ++ middle ++ idats).size)]
+    rw [Array.getElem_append_right (by simp only [Array.size_append, hsz1]; omega : (#[ihdr] ++ middle).size ≤ j)]
+    simp only [Array.size_append, hsz1, show j - (1 + middle.size) = j - 1 - middle.size from by omega]
+    exact hIDATs _ (Array.getElem_mem_toList ..)
+  have hnoIdat_suffix : ∀ j, 1 + middle.size + idats.size ≤ j →
+      (hj : j < (#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk).size) →
+      ((#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk)[j]).isIDAT = false := by
+    intro j hj1 hjs
+    have hj_eq : j = 1 + middle.size + idats.size := by
+      simp only [Array.size_append, hsz1, hsze] at hjs; omega
+    subst hj_eq
+    rw [Array.getElem_append_right (by simp only [Array.size_append, hsz1]; omega : (#[ihdr] ++ middle ++ idats).size ≤ 1 + middle.size + idats.size)]
+    simp only [Array.size_append, hsz1,
+      show 1 + middle.size + idats.size - (1 + middle.size + idats.size) = 0 from by omega]
+    exact hiend_not_idat
+  have hphase1 := idatContiguous_noIdat_segment (#[ihdr] ++ middle ++ idats ++ #[iend]) 0 (1 + middle.size)
+      (fun j hj1 hj2 hjs => hnoIdat_prefix j (by omega) (by omega) hjs) (by simp only [Array.size_append, hsz1, hsze]; omega)
+  have hphase2 := idatContiguous_allIdat_segment (#[ihdr] ++ middle ++ idats ++ #[iend]) (1 + middle.size) idats.size
+      (fun j hj1 hj2 hjs => hisIdat_range j hj1 (by omega) hjs) (by simp only [Array.size_append, hsz1, hsze]; omega) hNonemptyIDAT
+  have hphase3 := idatContiguous_non_idat (#[ihdr] ++ middle ++ idats ++ #[iend]) (1 + middle.size + idats.size) true false
+      (by simp only [Array.size_append, hsz1, hsze]; omega) (hnoIdat_suffix _ (by omega) (by simp only [Array.size_append, hsz1, hsze]; omega))
+  have hphase4 := idatContiguous_ge (#[ihdr] ++ middle ++ idats ++ #[iend]) (1 + middle.size + idats.size + 1) false true
+      (by simp only [Array.size_append, hsz1, hsze]; omega)
+  have hfirst : (#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk)[0]!.isIHDR = true := by
+    rw [getElem!_pos _ _ (by simp only [Array.size_append, hsz1, hsze]; omega)]
+    rw [Array.getElem_append_left (by simp only [Array.size_append, hsz1]; omega : (0 : Nat) < (#[ihdr] ++ middle ++ idats).size)]
+    rw [Array.getElem_append_left (by simp only [Array.size_append, hsz1]; omega : (0 : Nat) < (#[ihdr] ++ middle).size)]
+    rw [Array.getElem_append_left (by simp only [hsz1]; omega : (0 : Nat) < (#[ihdr] : Array PngChunk).size)]
+    exact hIHDR
+  have hlast : (#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk)[(#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk).size - 1]!.isIEND = true := by
+    have hsz : (#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk).size =
+        1 + middle.size + idats.size + 1 := by
+      simp only [Array.size_append, hsz1, hsze]
+    rw [hsz]
+    show (#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk)[1 + middle.size + idats.size + 1 - 1]!.isIEND = true
+    rw [show 1 + middle.size + idats.size + 1 - 1 = 1 + middle.size + idats.size from by omega]
+    rw [getElem!_pos _ _ (by rw [hsz]; omega)]
+    rw [Array.getElem_append_right (by simp only [Array.size_append, hsz1]; omega : (#[ihdr] ++ middle ++ idats).size ≤ 1 + middle.size + idats.size)]
+    simp only [Array.size_append, hsz1,
+      show 1 + middle.size + idats.size - (1 + middle.size + idats.size) = 0 from by omega]
+    exact hIEND
+  simp only [Nat.zero_add] at hphase1
+  have hphase3' : idatContiguous (#[ihdr] ++ middle ++ idats ++ #[iend])
+      (1 + middle.size + idats.size) true false =
+      idatContiguous (#[ihdr] ++ middle ++ idats ++ #[iend])
+      (1 + middle.size + idats.size + 1) false true := by
+    rw [hphase3]; rfl
+  unfold validChunkSequence
+  have hszne : ((#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk).size == 0) = false := by
+    simp only [Array.size_append, hsz1, hsze]; rfl
+  rw [hszne]
+  dsimp only []
+  rw [hfirst, hlast, Bool.true_and, Bool.true_and, hphase1, hphase2, hphase3', hphase4]
+  decide
 
 /-- An empty chunk sequence is invalid. -/
 theorem validChunkSequence_empty : validChunkSequence #[] = false := by

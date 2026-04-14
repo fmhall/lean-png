@@ -1,3 +1,6 @@
+-- Shared utilities
+import Png.Util.ByteArray
+
 -- Core types
 import Png.Types
 

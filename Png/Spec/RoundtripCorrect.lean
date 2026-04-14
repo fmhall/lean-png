@@ -3,6 +3,7 @@ import Png.Native.Decode
 import Png.Spec.ChunkCorrect
 import Png.Spec.IdatCorrect
 import Png.Spec.FilterCorrect
+import Png.Util.ByteArray
 
 /-!
 # PNG Encode/Decode Roundtrip Correctness
@@ -240,16 +241,7 @@ private theorem serializeChunks_unfold (chunks : Array PngChunk) :
   unfold serializeChunks; rfl
 
 /-- Array.push preserves getElem! at earlier indices. -/
-private theorem Array_push_getElem!_lt [Inhabited α] (a : Array α) (x : α) (i : Nat) (h : i < a.size) :
-    (a.push x)[i]! = a[i]! := by
-  have h1 : i < (a.push x).size := by rw [Array.size_push]; omega
-  -- a[i]! unfolds to if i < a.size then a[i] else default
-  -- (a.push x)[i]! unfolds to if i < (a.push x).size then (a.push x)[i] else default
-  -- Both conditions are true, so both reduce to the indexed values
-  -- (a.push x)[i] = a[i] when i < a.size by Array.getElem_push_lt
-  change (if i < (a.push x).size then (a.push x)[i] else default) =
-         (if i < a.size then a[i] else default)
-  rw [if_pos h1, if_pos h, Array.getElem_push_lt h]
+-- Array.push_getElem!_lt is now in Png.Util.ByteArray
 
 set_option maxHeartbeats 6400000 in
 /-- Key induction lemma: parseChunks.go on pfx ++ (serialized non-IEND chunks) ++ iend.serialize ++ sfx
@@ -318,7 +310,7 @@ private theorem parseChunks_go_serialized
       intro i hi_acc
       have hi_push : i < (acc.push (chunks[j]'hj_lt)).size := by
         rw [Array.size_push]; omega
-      rw [hprefix i hi_push, Array_push_getElem!_lt acc _ i hi_acc]
+      rw [hprefix i hi_push, Array.push_getElem!_lt acc _ i hi_acc]
     · -- exact size
       rw [Array.size_push] at hsz_eq
       omega
@@ -360,7 +352,7 @@ private theorem parseChunks_go_serialized
       rw [getElem!_pos _ _ (by rw [Array.size_push]; omega)]
       exact Array.getElem_push_eq
     · intro i hi
-      exact Array_push_getElem!_lt acc iendChunk i hi
+      exact Array.push_getElem!_lt acc iendChunk i hi
     · rw [Array.size_push]; omega
     · intro k hk hk_lt; omega
 termination_by chunks.size - j
@@ -593,11 +585,7 @@ theorem filterScanlines_size (pixels : ByteArray) (width height : UInt32)
   · exact hvalid
 
 /-- Append getElem! left: reading before the split point gives the left array's byte. -/
-private theorem ByteArray_append_getElem!_left (a b : ByteArray) (i : Nat) (h : i < a.size) :
-    (a ++ b)[i]! = a[i]! := by
-  rw [getElem!_pos (a ++ b) i (by rw [ByteArray.size_append]; omega),
-      getElem!_pos a i h]
-  exact ByteArray.getElem_append_left h
+-- ByteArray.append_getElem!_left is now in Png.Util.ByteArray
 
 /-- The go function preserves the prefix: bytes before `result.size` are unchanged. -/
 private theorem filterScanlines_go_prefix (pixels : ByteArray) (width height : UInt32)
@@ -622,7 +610,7 @@ private theorem filterScanlines_go_prefix (pixels : ByteArray) (width height : U
       rw [hresult']; rw [hresult] at hj; rw [Nat.succ_mul]; omega
     rw [filterScanlines_go_prefix pixels width height strategy (r + 1) _ _ j hj'
         (by omega) hresult' hvalid]
-    rw [ByteArray_append_getElem!_left _ _ _ (by rw [ByteArray.size_push]; omega)]
+    rw [ByteArray.append_getElem!_left _ _ _ (by rw [ByteArray.size_push]; omega)]
     rw [ByteArray.push_getElem!_lt _ _ _ hj]
   case isFalse => rfl
 termination_by height.toNat - r
@@ -650,26 +638,14 @@ private theorem filterScanlines_go_get_ft_byte (pixels : ByteArray) (width heigh
     rw [hresult']; rw [hresult]; rw [Nat.succ_mul]; omega
   rw [filterScanlines_go_prefix pixels width height strategy (r + 1) _ _ result.size hpos
       (by omega) hresult' hvalid]
-  rw [ByteArray_append_getElem!_left _ _ _ (by rw [ByteArray.size_push]; omega)]
+  rw [ByteArray.append_getElem!_left _ _ _ (by rw [ByteArray.size_push]; omega)]
   exact ByteArray.push_getElem!_eq result _
 
 /-! ## Unfilter/filter scanlines roundtrip -/
 
-/-- Append getElem! right at offset: reading past the split point gives the right array's byte. -/
-private theorem ByteArray_append_getElem!_right (a b : ByteArray) (j : Nat) (hj : j < b.size) :
-    (a ++ b)[a.size + j]! = b[j]! := by
-  have h1 : a.size + j < (a ++ b).size := by rw [ByteArray.size_append]; omega
-  rw [getElem!_pos (a ++ b) (a.size + j) h1, getElem!_pos b j hj,
-      ByteArray.getElem_append_right (show a.size ≤ a.size + j from by omega)]
-  congr 1; omega
+-- ByteArray.append_getElem!_right is now in Png.Util.ByteArray
 
-/-- Bridge ByteArray.get! and getElem! (they operate on the same data). -/
-private theorem ByteArray_get!_eq_getElem! (ba : ByteArray) (i : Nat) :
-    ba.get! i = ba[i]! := by
-  simp only [ByteArray.get!]
-  by_cases h : i < ba.size
-  · rw [getElem!_pos ba.data i h, getElem!_pos ba i h]; rfl
-  · rw [getElem!_neg ba.data i h, getElem!_neg ba i h]
+-- ByteArray.get!_eq_getElem! is now in Png.Util.ByteArray
 
 /-- Helper for nonlinear arithmetic: row data region fits within total size. -/
 private theorem row_data_end_le_total (r : Nat) (height : UInt32) (w4 : Nat)
@@ -700,7 +676,7 @@ private theorem filterScanlines_go_get_filtered_byte (pixels : ByteArray) (width
       (by omega) hresult' hvalid]
   rw [show result.size + 1 + j = (result.push (strategy.getFilterType r).toUInt8).size + j from by
     rw [ByteArray.size_push]]
-  exact ByteArray_append_getElem!_right _ _ j (by rw [hfr, hex]; exact hj)
+  exact ByteArray.append_getElem!_right _ _ j (by rw [hfr, hex]; exact hj)
 
 /-- Extract characterization: the extract at row r of the filtered output
     equals the filterRow result. -/
@@ -767,7 +743,7 @@ private theorem unfilter_filter_go (pixels : ByteArray) (width height : UInt32)
     -- Show the ft byte read matches the strategy's filter type
     have hft_get : filtered.get! (r * (1 + width.toNat * 4)) =
         (strategy.getFilterType r).toUInt8 := by
-      rw [ByteArray_get!_eq_getElem!,
+      rw [ByteArray.get!_eq_getElem!,
           show r * (1 + width.toNat * 4) = filterResult.size from by rw [hfr_size],
           hfiltered]
       exact filterScanlines_go_get_ft_byte pixels width height strategy r filterResult priorRow

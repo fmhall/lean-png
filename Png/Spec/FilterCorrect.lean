@@ -1,5 +1,5 @@
 import Png.Native.Filter
-import ZipForStd.ByteArray
+import Png.Util.ByteArray
 
 /-!
 # PNG Filter Correctness Proofs
@@ -11,17 +11,6 @@ Formal proofs that PNG scanline filtering is invertible:
 namespace Png.Spec.FilterCorrect
 
 open Png.Native.Filter
-
-/-! ## Utility -/
-
-theorem ByteArray.ext_getElem! (a b : ByteArray) (hs : a.size = b.size)
-    (hg : ∀ i, i < a.size → a[i]! = b[i]!) : a = b := by
-  apply ByteArray.ext
-  exact Array.ext hs fun i h1 _ => by
-    have hi : i < a.size := h1
-    have hi2 : i < b.size := by omega
-    have := hg i hi
-    rw [getElem!_pos a i hi, getElem!_pos b i hi2] at this; exact this
 
 theorem getByteOr0_eq_getElem! (arr : ByteArray) (i : Nat) :
     getByteOr0 arr i = arr[i]! := by
