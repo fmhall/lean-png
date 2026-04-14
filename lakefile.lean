@@ -58,3 +58,6 @@ lean_lib PngTest where
 @[default_target]
 lean_exe test where
   root := `PngTest
+
+lean_exe bench where
+  root := `PngBench

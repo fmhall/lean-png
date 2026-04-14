@@ -125,7 +125,6 @@ private theorem extractIdatData_push_idat (arr : Array PngChunk) (data : ByteArr
   unfold extractIdatData
   exact extractIdatData_go_push_idat arr data 0 ByteArray.empty (by omega)
 
-/-- Helper: a ByteArray with size 0 is empty. -/
 -- ByteArray.eq_empty_of_size is now in Png.Util.ByteArray
 
 /-! ## Extraction correctness -/

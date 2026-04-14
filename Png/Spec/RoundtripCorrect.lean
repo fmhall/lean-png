@@ -240,7 +240,6 @@ private theorem serializeChunks_unfold (chunks : Array PngChunk) :
     serializeChunks chunks = serializeChunks.go chunks 0 ByteArray.empty := by
   unfold serializeChunks; rfl
 
-/-- Array.push preserves getElem! at earlier indices. -/
 -- Array.push_getElem!_lt is now in Png.Util.ByteArray
 
 set_option maxHeartbeats 6400000 in
@@ -584,7 +583,6 @@ theorem filterScanlines_size (pixels : ByteArray) (width height : UInt32)
   · simp only [ByteArray.size_empty, Nat.zero_mul]
   · exact hvalid
 
-/-- Append getElem! left: reading before the split point gives the left array's byte. -/
 -- ByteArray.append_getElem!_left is now in Png.Util.ByteArray
 
 /-- The go function preserves the prefix: bytes before `result.size` are unchanged. -/
@@ -693,7 +691,7 @@ private theorem filterScanlines_go_extract_row (pixels : ByteArray) (width heigh
   have hfsz := filterScanlines_go_size pixels width height strategy r result priorRow
     (by omega) hresult hvalid
   have hbound := row_data_end_le_total r height (width.toNat * 4) hr
-  apply Png.Spec.FilterCorrect.ByteArray.ext_getElem!
+  apply ByteArray.ext_getElem!
   · rw [ByteArray.size_extract, hfr, hex, Nat.min_eq_left (by rw [hfsz]; exact hbound)]; omega
   · intro i hi
     rw [ByteArray.size_extract, Nat.min_eq_left (by rw [hfsz]; exact hbound)] at hi
