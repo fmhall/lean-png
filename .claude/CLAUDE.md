@@ -4,6 +4,11 @@ Verified PNG decoder/encoder in Lean 4, with formal proofs of correctness.
 Reuses lean-zip's verified DEFLATE/CRC32. Toolchain: see `lean-toolchain`.
 Build system: Lake.
 
+**IMPORTANT**: Read `.claude/LEARNINGS.md` before starting any proof work.
+It contains hard-won lessons from prior agent sessions that will save you
+hours of wasted effort (opaque loop pitfalls, key lemma names, proof
+patterns that work).
+
 ## Build and Test
 
     lake build          # build library + test executable
@@ -148,32 +153,3 @@ This project depends on lean-zip for DEFLATE and CRC32. Key imports:
 
 When proving PNG roundtrip theorems, compose with lean-zip theorems
 rather than re-proving compression correctness.
-
-
-# Pod Agent Session
-
-You are running as an autonomous agent launched by `pod`. This is a
-non-interactive session via `claude -p` — there is no human to answer
-questions. Never ask for confirmation or approval. Just do the work.
-
-Each agent runs in its own git worktree on its own branch, coordinating
-via GitHub issues, labels, and PRs. The `coordination` script is already
-on your PATH — just run it directly (e.g. `coordination orient`,
-`coordination claim 42`). Do NOT search for it or try to locate it.
-
-Session UUID is available as `$POD_SESSION_ID`.
-
-## Agent Types
-
-- **Planners** (`/plan`): create work items as GitHub issues, then exit
-- **Workers** (`/feature`, `/review`, `/summarize`, `/meditate`): claim
-  and execute issues using the `agent-worker-flow` skill
-
-See your `/command` file and the `agent-worker-flow` skill for the full
-workflow.
-
-## Off-limits Files
-
-Agents must not modify the project's top-level CLAUDE.md (`.claude/CLAUDE.md`)
-or roadmap file (`PLAN.md`). PRs touching these files are rejected by
-`coordination create-pr`. Update skills and commands instead.

@@ -1,4 +1,5 @@
 import Png.Native.Chunk
+import ZipForStd.ByteArray
 
 /-!
 # Chunk Framing Correctness Specifications
@@ -17,10 +18,10 @@ namespace Png.Spec
 
 /-! ## Helper lemmas -/
 
-private theorem writeUInt32BE_size (v : UInt32) : (writeUInt32BE v).size = 4 := by
+theorem writeUInt32BE_size (v : UInt32) : (writeUInt32BE v).size = 4 := by
   simp only [writeUInt32BE, ByteArray.size, Array.size, List.length]
 
-private theorem readUInt32BE_writeUInt32BE_append (v : UInt32) (rest : ByteArray) :
+theorem readUInt32BE_writeUInt32BE_append (v : UInt32) (rest : ByteArray) :
     readUInt32BE (writeUInt32BE v ++ rest) 0 = v := by
   simp only [readUInt32BE, writeUInt32BE]
   have hsz : (ByteArray.mk #[(v >>> 24).toUInt8, (v >>> 16).toUInt8, (v >>> 8).toUInt8, v.toUInt8] ++ rest).size
@@ -43,7 +44,7 @@ private theorem readUInt32BE_writeUInt32BE_append (v : UInt32) (rest : ByteArray
   bv_decide
 
 set_option maxHeartbeats 800000 in
-private theorem readUInt32BE_append_at_size (a b : ByteArray) (hn : 4 ≤ b.size) :
+theorem readUInt32BE_append_at_size (a b : ByteArray) (hn : 4 ≤ b.size) :
     readUInt32BE (a ++ b) a.size = readUInt32BE b 0 := by
   simp only [readUInt32BE]
   rw [dif_pos (by rw [ByteArray.size_append]; omega : a.size + 4 ≤ (a ++ b).size),
@@ -57,12 +58,6 @@ private theorem readUInt32BE_append_at_size (a b : ByteArray) (hn : 4 ≤ b.size
   rfl
 
 /-! ## Serialize/parse roundtrip -/
-
-/-- Parsing a serialized chunk recovers the original chunk.
-    We parse at offset 0 in the serialized output. -/
-theorem parseChunk_serialize (c : PngChunk) :
-    parseChunk c.serialize 0 = .ok ⟨c, c.serialize.size⟩ := by
-  sorry
 
 /-- The CRC stored in a serialized chunk matches the computed CRC.
     This follows from the construction, but is a useful standalone property. -/
@@ -104,6 +99,61 @@ theorem serialize_size (c : PngChunk) :
   simp only [ByteArray.size_append]
   simp only [ByteArray.size, Array.size, List.length]
   omega
+
+theorem serialize_extract_type_data (c : PngChunk) :
+    c.serialize.extract 4 (8 + c.data.size) = writeUInt32BE c.chunkType ++ c.data := by
+  simp only [PngChunk.serialize]
+  rw [ByteArray.append_assoc]
+  rw [ByteArray.extract_append_ge (writeUInt32BE c.data.size.toUInt32) _ 4 (8 + c.data.size)
+    (by rw [writeUInt32BE_size]; omega)]
+  simp only [writeUInt32BE_size, Nat.sub_self,
+    show 8 + c.data.size - 4 = 4 + c.data.size from by omega]
+  rw [show (4 + c.data.size) = (writeUInt32BE c.chunkType ++ c.data).size from by
+    rw [ByteArray.size_append, writeUInt32BE_size]]
+  exact ByteArray.extract_append_left _ _
+
+theorem serialize_extract_data (c : PngChunk) :
+    c.serialize.extract 8 (8 + c.data.size) = c.data := by
+  simp only [PngChunk.serialize]
+  rw [ByteArray.append_assoc]
+  rw [ByteArray.extract_append_ge (writeUInt32BE c.data.size.toUInt32) _ 8 (8 + c.data.size)
+    (by rw [writeUInt32BE_size]; omega)]
+  simp only [writeUInt32BE_size,
+    show 8 - 4 = 4 from by omega,
+    show 8 + c.data.size - 4 = 4 + c.data.size from by omega]
+  rw [ByteArray.append_assoc]
+  rw [ByteArray.extract_append_ge (writeUInt32BE c.chunkType) _ 4 (4 + c.data.size)
+    (by rw [writeUInt32BE_size]; omega)]
+  simp only [writeUInt32BE_size, Nat.sub_self,
+    show 4 + c.data.size - 4 = c.data.size from by omega]
+  exact ByteArray.extract_append_left _ _
+
+set_option maxHeartbeats 800000 in
+/-- Parsing a serialized chunk recovers the original chunk.
+    Requires that chunk data fits in the PNG length field (< 2^31 bytes per spec). -/
+theorem parseChunk_serialize (c : PngChunk) (hlen : c.data.size < 2 ^ 31) :
+    parseChunk c.serialize 0 = .ok ⟨c, c.serialize.size⟩ := by
+  have hlen32 : c.data.size < 2 ^ 32 := by omega
+  have hrt : c.data.size.toUInt32.toNat = c.data.size := by
+    simp only [Nat.toUInt32, UInt32.toNat_ofNat', Nat.reducePow, Nat.mod_eq_of_lt hlen32]
+  have hsize : c.serialize.size = 12 + c.data.size := serialize_size c
+  simp only [Png.parseChunk,
+    serialize_length_field c, serialize_type_field c, hrt,
+    show ¬(0 + 12 > c.serialize.size) from by rw [hsize]; omega,
+    show ¬(0 + 8 + c.data.size + 4 > c.serialize.size) from by rw [hsize]; omega,
+    show (0 + 4 : Nat) = 4 from by omega,
+    show (0 + 8 : Nat) = 8 from by omega,
+    ↓reduceIte,
+    bind, Except.bind, pure, Except.pure]
+  -- Resolve CRC check
+  rw [serialize_extract_type_data c,
+    show (readUInt32BE c.serialize (8 + c.data.size) !=
+      Crc32.Native.crc32 0 (writeUInt32BE c.chunkType ++ c.data)) = false from by
+      rw [serialize_crc_valid c]; exact bne_self_eq_false _]
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  -- Resolve data extract and offset
+  rw [serialize_extract_data c,
+    show 8 + c.data.size + 4 = c.serialize.size from by rw [hsize]; omega]
 
 /-! ## IHDR roundtrip helpers -/
 
@@ -225,6 +275,92 @@ theorem plte_isCritical : ChunkType.isCritical ChunkType.PLTE = true := by
 
 /-! ## Chunk sequence validity -/
 
+/-- `idatContiguous` past the end of the array always returns true. -/
+private theorem idatContiguous_ge (chunks : Array PngChunk) (i : Nat)
+    (inIdat afterIDAT : Bool) (h : i ≥ chunks.size) :
+    idatContiguous chunks i inIdat afterIDAT = true := by
+  unfold idatContiguous
+  rw [dif_neg (by omega)]
+
+/-- Stepping through a non-IDAT chunk. -/
+private theorem idatContiguous_non_idat (chunks : Array PngChunk) (i : Nat)
+    (inIdat afterIDAT : Bool) (hi : i < chunks.size)
+    (hnotIDAT : chunks[i].isIDAT = false) :
+    idatContiguous chunks i inIdat afterIDAT =
+      idatContiguous chunks (i + 1) false (afterIDAT || inIdat) := by
+  rw [idatContiguous.eq_1]
+  simp only [hi, ↓reduceDIte, hnotIDAT, Bool.false_eq_true, ↓reduceIte]
+
+/-- Stepping through an IDAT chunk with afterIDAT = false. -/
+private theorem idatContiguous_idat (chunks : Array PngChunk) (i : Nat)
+    (inIdat : Bool) (hi : i < chunks.size)
+    (hIDAT : chunks[i].isIDAT = true) :
+    idatContiguous chunks i inIdat false =
+      idatContiguous chunks (i + 1) true false := by
+  rw [idatContiguous.eq_1]
+  simp only [hi, ↓reduceDIte, hIDAT, Bool.false_eq_true, ↓reduceIte]
+
+/-- Stepping through an IDAT chunk with afterIDAT = true returns false. -/
+private theorem idatContiguous_idat_after (chunks : Array PngChunk) (i : Nat)
+    (inIdat : Bool) (hi : i < chunks.size)
+    (hIDAT : chunks[i].isIDAT = true) :
+    idatContiguous chunks i inIdat true = false := by
+  rw [idatContiguous.eq_1]
+  simp only [hi, ↓reduceDIte, hIDAT, ↓reduceIte]
+
+/-- If `isIHDR` is true then `isIDAT` is false. -/
+private theorem isIHDR_not_isIDAT (c : PngChunk) (h : c.isIHDR = true) :
+    c.isIDAT = false := by
+  simp only [PngChunk.isIHDR, PngChunk.isIDAT, beq_iff_eq] at h ⊢
+  rw [h]; decide
+
+/-- If `isIEND` is true then `isIDAT` is false. -/
+private theorem isIEND_not_isIDAT (c : PngChunk) (h : c.isIEND = true) :
+    c.isIDAT = false := by
+  simp only [PngChunk.isIEND, PngChunk.isIDAT, beq_iff_eq] at h ⊢
+  rw [h]; decide
+
+/-- Process a segment where no chunks are IDAT, preserving afterIDAT=false. -/
+private theorem idatContiguous_noIdat_segment (chunks : Array PngChunk) (i n : Nat)
+    (h : ∀ j, i ≤ j → j < i + n → (hj : j < chunks.size) → (chunks[j]'hj).isIDAT = false)
+    (hn : i + n ≤ chunks.size) :
+    idatContiguous chunks i false false = idatContiguous chunks (i + n) false false := by
+  induction n generalizing i with
+  | zero => simp only [Nat.add_zero]
+  | succ k ih =>
+    have hi : i < chunks.size := by omega
+    rw [idatContiguous_non_idat chunks i false false hi (h i (Nat.le_refl _) (by omega) hi)]
+    simp only [Bool.false_or]
+    have := ih (i + 1) (fun j hj1 hj2 hj3 => h j (by omega) (by omega) hj3) (by omega)
+    rw [show i + 1 + k = i + (k + 1) from by omega] at this
+    exact this
+
+/-- Continue through IDAT chunks when already in IDAT mode. -/
+private theorem idatContiguous_idat_run (chunks : Array PngChunk) (i n : Nat)
+    (h : ∀ j, i ≤ j → j < i + n → (hj : j < chunks.size) → (chunks[j]'hj).isIDAT = true)
+    (hn : i + n ≤ chunks.size) :
+    idatContiguous chunks i true false = idatContiguous chunks (i + n) true false := by
+  induction n generalizing i with
+  | zero => simp only [Nat.add_zero]
+  | succ k ih =>
+    have hi : i < chunks.size := by omega
+    rw [idatContiguous_idat chunks i true hi (h i (Nat.le_refl _) (by omega) hi)]
+    have := ih (i + 1) (fun j hj1 hj2 hj3 => h j (by omega) (by omega) hj3) (by omega)
+    rw [show i + 1 + k = i + (k + 1) from by omega] at this
+    exact this
+
+/-- Process a segment where all chunks are IDAT starting from non-IDAT mode. -/
+private theorem idatContiguous_allIdat_segment (chunks : Array PngChunk) (i n : Nat)
+    (h : ∀ j, i ≤ j → j < i + n → (hj : j < chunks.size) → (chunks[j]'hj).isIDAT = true)
+    (hn : i + n ≤ chunks.size)
+    (hpos : n > 0) :
+    idatContiguous chunks i false false = idatContiguous chunks (i + n) true false := by
+  have hi : i < chunks.size := by omega
+  rw [idatContiguous_idat chunks i false hi (h i (Nat.le_refl _) (by omega) hi)]
+  rw [idatContiguous_idat_run chunks (i + 1) (n - 1)
+    (fun j hj1 hj2 hj3 => h j (by omega) (by omega) hj3) (by omega)]
+  congr 1; omega
+
 /-- A sequence with IHDR first, some IDATs, and IEND last is valid. -/
 theorem validChunkSequence_basic
     (ihdr : PngChunk) (idats : Array PngChunk) (iend : PngChunk)
@@ -253,5 +389,83 @@ theorem readUInt32BE_writeUInt32BE (v : UInt32) :
   show (v >>> 24).toUInt8.toUInt32 <<< 24 ||| (v >>> 16).toUInt8.toUInt32 <<< 16 |||
     (v >>> 8).toUInt8.toUInt32 <<< 8 ||| v.toUInt8.toUInt32 = v
   bv_decide
+
+/-! ## Offset-shifting helpers for parseChunk_at_offset -/
+
+set_option maxHeartbeats 1600000 in
+/-- Reading a UInt32 from the left portion of a concatenation,
+    when the 4-byte window is entirely within the left portion. -/
+theorem readUInt32BE_append_right (a b : ByteArray) (offset : Nat) (h : offset + 4 ≤ a.size) :
+    readUInt32BE (a ++ b) offset = readUInt32BE a offset := by
+  have hab : offset + 4 ≤ (a ++ b).size := by rw [ByteArray.size_append]; omega
+  simp only [readUInt32BE, hab, h, ↓reduceDIte]
+  simp only [ByteArray.getElem_append_left (show offset < a.size from by omega),
+    ByteArray.getElem_append_left (show offset + 1 < a.size from by omega),
+    ByteArray.getElem_append_left (show offset + 2 < a.size from by omega),
+    ByteArray.getElem_append_left (show offset + 3 < a.size from by omega)]
+  rfl
+
+/-- Extracting a range entirely within the left portion of a concatenation. -/
+theorem extract_append_within_left (a b : ByteArray) (i j : Nat) (hj : j ≤ a.size) :
+    (a ++ b).extract i j = a.extract i j := by
+  apply ByteArray.ext
+  simp only [ByteArray.data_extract, ByteArray.data_append, Array.extract_append,
+    ByteArray.size_data,
+    show j - a.size = 0 from by omega,
+    Array.extract_zero, Array.append_empty]
+
+set_option maxHeartbeats 1600000 in
+/-- Reading a UInt32 from the right portion of a concatenation at offset `a.size + k`. -/
+theorem readUInt32BE_append_at_offset (a b : ByteArray) (k : Nat) (hk : k + 4 ≤ b.size) :
+    readUInt32BE (a ++ b) (a.size + k) = readUInt32BE b k := by
+  have hab : (a.size + k) + 4 ≤ (a ++ b).size := by rw [ByteArray.size_append]; omega
+  simp only [readUInt32BE, hab, hk, ↓reduceDIte]
+  simp only [
+    ByteArray.getElem_append_right (show a.size ≤ a.size + k from by omega),
+    ByteArray.getElem_append_right (show a.size ≤ a.size + k + 1 from by omega),
+    ByteArray.getElem_append_right (show a.size ≤ a.size + k + 2 from by omega),
+    ByteArray.getElem_append_right (show a.size ≤ a.size + k + 3 from by omega),
+    show a.size + k - a.size = k from by omega,
+    show a.size + k + 1 - a.size = k + 1 from by omega,
+    show a.size + k + 2 - a.size = k + 2 from by omega,
+    show a.size + k + 3 - a.size = k + 3 from by omega]
+  rfl
+
+/-- Extracting a range from the right portion of a concatenation. -/
+theorem extract_append_at_offset (a b : ByteArray) (i j : Nat) :
+    (a ++ b).extract (a.size + i) (a.size + j) = b.extract i j := by
+  rw [ByteArray.extract_append_ge _ _ _ _ (by omega : a.size + i ≥ a.size)]
+  congr 1 <;> omega
+
+/-- Reading the length field of a serialized chunk with an appended suffix. -/
+theorem serialize_length_field_append (c : PngChunk) (suffix : ByteArray) :
+    readUInt32BE (c.serialize ++ suffix) 0 = c.data.size.toUInt32 := by
+  rw [readUInt32BE_append_right _ _ _ (by rw [serialize_size]; omega)]
+  exact serialize_length_field c
+
+/-- Reading the type field of a serialized chunk with an appended suffix. -/
+theorem serialize_type_field_append (c : PngChunk) (suffix : ByteArray) :
+    readUInt32BE (c.serialize ++ suffix) 4 = c.chunkType := by
+  rw [readUInt32BE_append_right _ _ _ (by rw [serialize_size]; omega)]
+  exact serialize_type_field c
+
+/-- Extracting type+data from a serialized chunk with an appended suffix. -/
+theorem serialize_extract_type_data_append (c : PngChunk) (suffix : ByteArray) :
+    (c.serialize ++ suffix).extract 4 (8 + c.data.size) = writeUInt32BE c.chunkType ++ c.data := by
+  rw [extract_append_within_left _ _ _ _ (by rw [serialize_size]; omega)]
+  exact serialize_extract_type_data c
+
+/-- Extracting data from a serialized chunk with an appended suffix. -/
+theorem serialize_extract_data_append (c : PngChunk) (suffix : ByteArray) :
+    (c.serialize ++ suffix).extract 8 (8 + c.data.size) = c.data := by
+  rw [extract_append_within_left _ _ _ _ (by rw [serialize_size]; omega)]
+  exact serialize_extract_data c
+
+/-- Reading the CRC field of a serialized chunk with an appended suffix. -/
+theorem serialize_crc_valid_append (c : PngChunk) (suffix : ByteArray) :
+    readUInt32BE (c.serialize ++ suffix) (8 + c.data.size) =
+      Crc32.Native.crc32 0 (writeUInt32BE c.chunkType ++ c.data) := by
+  rw [readUInt32BE_append_right _ _ _ (by rw [serialize_size]; omega)]
+  exact serialize_crc_valid c
 
 end Png.Spec
