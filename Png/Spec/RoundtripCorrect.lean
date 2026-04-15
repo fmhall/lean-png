@@ -40,7 +40,7 @@ open Png.Native.Filter
 
 /-- The IHDR chunk in an encoded PNG matches the original image dimensions.
     Requires nonzero width/height since IHDRInfo.fromBytes rejects zero dimensions. -/
-theorem encodePng_ihdr_matches (image : PngImage) (strategy : FilterStrategy)
+theorem encodePng_ihdr_matches (image : PngImage) (_strategy : FilterStrategy)
     (hw : image.width ≠ 0) (hh : image.height ≠ 0) :
     let ihdr := mkIHDRChunk image.width image.height
     ihdr.chunkType = ChunkType.IHDR ∧
@@ -199,7 +199,7 @@ private theorem parseChunks_go_iend (data : ByteArray) (off : Nat) (acc : Array 
   simp only [show ¬(off ≥ data.size) from by omega, ↓reduceIte, hparse, hIEND]
 
 /-- parseChunk advances the offset by exactly serialize.size bytes. -/
-private theorem parseChunk_offset_advance (pfx sfx : ByteArray) (c : PngChunk)
+private theorem parseChunk_offset_advance (_pfx _sfx : ByteArray) (c : PngChunk)
     (hlen : c.data.size < 2 ^ 31) :
     c.serialize.size > 0 := by
   rw [Png.Spec.serialize_size]; omega
@@ -421,7 +421,7 @@ private theorem compressAndSplit_data_small (data : ByteArray) :
 
 /-- Parsing chunks from encodePng recovers the original IHDR and IDAT data. -/
 theorem decodePng_chunks_roundtrip (image : PngImage) (strategy : FilterStrategy)
-    (hvalid : image.isValid = true) :
+    (_hvalid : image.isValid = true) :
     ∃ chunks : Array PngChunk,
       parseChunks (encodePng image strategy) = .ok chunks ∧
       chunks[0]!.isIHDR = true ∧
@@ -569,7 +569,7 @@ theorem filterScanlines_size (pixels : ByteArray) (width height : UInt32)
 private theorem filterScanlines_go_prefix (pixels : ByteArray) (width height : UInt32)
     (strategy : FilterStrategy) (r : Nat) (result priorRow : ByteArray)
     (j : Nat) (hj : j < result.size)
-    (hr_le : r ≤ height.toNat)
+    (_hr_le : r ≤ height.toNat)
     (hresult : result.size = r * (1 + width.toNat * 4))
     (hvalid : pixels.size = width.toNat * height.toNat * 4) :
     (filterScanlines.go pixels width height strategy 4 r result priorRow)[j]! = result[j]! := by
@@ -960,7 +960,7 @@ private theorem extractIdatData_sandwich
 private theorem parseChunks_encodePng_result (image : PngImage) (strategy : FilterStrategy) :
     let ihdr := mkIHDRChunk image.width image.height
     let idats := Idat.compressAndSplit (filterScanlines image.pixels image.width image.height strategy)
-    let iend := mkIENDChunk
+    let _iend := mkIENDChunk
     ∃ result : Array PngChunk,
       parseChunks (encodePng image strategy) = .ok result ∧
       result.size > 0 ∧
@@ -1085,13 +1085,13 @@ theorem decodePng_encodePng (image : PngImage) (strategy : FilterStrategy)
   simp only [← getElem!_pos]
   -- First chunk is IHDR
   have hisIHDR : result[0]!.isIHDR = true := by rw [hfirst]; rfl
-  simp only [hisIHDR, Bool.not_true, ↓reduceIte]
+  simp only [hisIHDR, Bool.not_true]
   -- IHDRInfo.fromBytes succeeds
   rw [hfromBytes]
   -- interlaceMethod check: .none
-  simp only [show (ihdrInfo.interlaceMethod != .none) = false from by rfl, ↓reduceIte]
+  simp only [show (ihdrInfo.interlaceMethod != .none) = false from by rfl]
   -- bitDepth and colorType checks
-  simp only [show (ihdrInfo.bitDepth != 8 || ihdrInfo.colorType != .rgba) = false from by rfl, ↓reduceIte]
+  simp only [show (ihdrInfo.bitDepth != 8 || ihdrInfo.colorType != .rgba) = false from by rfl]
   -- The remaining goal involves extractDecompressValidate + unfilterScanlines.
   -- Abbreviations for the filtered data and IDAT chunks
   let filteredData := filterScanlines image.pixels image.width image.height strategy
@@ -1135,7 +1135,7 @@ theorem decodePng_encodePng (image : PngImage) (strategy : FilterStrategy)
     exact unfilterScanlines_filterScanlines image.pixels image.width image.height strategy hpixels_sz
   -- Step 4: Put it all together
   -- The goal involves extractDecompressValidate and unfilterScanlines through Except.bind
-  simp only [hextract_validate, hunfilter, bind, Except.bind, pure, Except.pure, ihdrInfo]
+  simp only [hextract_validate, hunfilter, pure, Except.pure, ihdrInfo]
   -- Goal: .ok { width := image.width, height := image.height, pixels := image.pixels } = .ok image
   -- Structure eta for PngImage
   cases image; rfl
