@@ -6,8 +6,8 @@ machine-checked by Lean 4's kernel with zero `sorry`. If it
 type-checks, encoding followed by decoding recovers your original image.
 
 Built on [lean-zip](https://github.com/kim-em/lean-zip)'s verified
-DEFLATE/CRC32/Adler32. 20 source files, ~6,800 lines of Lean,
-214 proven theorems, **zero `sorry`**, 200 tests.
+DEFLATE/CRC32/Adler32. 23 source files, ~7,600 lines of Lean,
+253 proven theorems, **zero `sorry`**, 180 tests.
 
 ## Why verified PNG?
 
@@ -116,6 +116,10 @@ theorem ihdr_fromBytes_toBytes (ihdr : IHDRInfo)
     (hw : ihdr.width ≠ 0) (hh : ihdr.height ≠ 0)
     (hc : ihdr.compressionMethod = 0) (hf : ihdr.filterMethod = 0) :
     IHDRInfo.fromBytes ihdr.toBytes = .ok ihdr
+
+theorem plte_fromBytes_toBytes (plte : PLTEInfo)
+    (hne : plte.entries.size > 0) (hle : plte.entries.size ≤ 256) :
+    PLTEInfo.fromBytes plte.toBytes = .ok plte
 ```
 
 ### IDAT compression roundtrip
@@ -239,24 +243,26 @@ The roundtrip decomposes into independently-proven building blocks:
 
 ```
 Png/
-  Types.lean            — PngImage, IHDRInfo, chunk types
+  Types.lean            — PngImage, IHDRInfo, ColorType, PLTEInfo, TRNSInfo
   FFI.lean              — libpng C FFI bindings
   Util/
     ByteArray.lean      — General ByteArray/Array lemmas (upstreamable)
   Native/
-    Chunk.lean          — Pure Lean chunk parser/serializer
+    Chunk.lean          — Pure Lean chunk parser/serializer (IHDR, PLTE, tRNS)
+    ColorConvert.lean   — Pixel format converters (all color types + sub-byte)
     Idat.lean           — IDAT compress/decompress pipeline
     Filter.lean         — All 5 filter types (filter + unfilter)
     Interlace.lean      — Adam7 extract/scatter
     Encode.lean         — PNG encoder (filter → compress → chunk → serialize)
     Decode.lean         — PNG decoder (parse → decompress → unfilter)
   Spec/
-    ChunkCorrect.lean   — Chunk roundtrip proofs (43 theorems)
+    BoundsCorrect.lean  — Index bound proofs (7 theorems)
+    ChunkCorrect.lean   — Chunk + PLTE roundtrip proofs (57 theorems)
     IdatCorrect.lean    — IDAT roundtrip proofs (19 theorems)
     FilterCorrect.lean  — Filter roundtrip proofs, all 5 types (36 theorems)
     InterlaceCorrect.lean — Interlace proofs (41 theorems, 0 sorry)
     RoundtripCorrect.lean — Capstone composition (57 theorems, 0 sorry)
-PngTest/                — 200 conformance tests (native vs FFI + PngSuite)
+PngTest/                — 180 tests (native vs FFI + PngSuite + unit tests)
 PngBench.lean           — Benchmark driver for hyperfine
 c/png_ffi.c             — libpng FFI wrapper (~500 lines of C)
 ```
@@ -280,14 +286,15 @@ exact zlib_decompressSingle_compress data level hsize
 
 ## Project status
 
-**20 source files. ~6,800 lines of Lean. 214 theorems. Zero `sorry`.
-200 tests. Capstone proven.**
+**23 source files. ~7,600 lines of Lean. 253 theorems. Zero `sorry`.
+180 tests. Capstone proven.**
 
 ### All spec files fully proven (0 sorry)
 
 | File | Theorems | Key result |
 |------|----------|-----------|
-| `ChunkCorrect.lean` | 43 | `parseChunk_serialize`, `validChunkSequence_basic` |
+| `BoundsCorrect.lean` | 7 | `parseChunk_offset_bounded`, `scanlineBytes_bounded` |
+| `ChunkCorrect.lean` | 57 | `parseChunk_serialize`, `plte_fromBytes_toBytes` |
 | `FilterCorrect.lean` | 36 | `unfilterRow_filterRow` (all 5 types) |
 | `IdatCorrect.lean` | 19 | `decompressIdat_compressIdat` |
 | `InterlaceCorrect.lean` | 41 | `adam7Scatter_extract`, `adam7_coverage`, `adam7_uniqueness` |
