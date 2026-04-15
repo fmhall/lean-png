@@ -14,6 +14,7 @@ import Png.Native.Idat
 import Png.Native.Encode
 import Png.Native.Decode
 import Png.Native.Interlace
+import Png.Native.ColorConvert
 
 -- Specifications and proofs
 import Png.Spec.BoundsCorrect
