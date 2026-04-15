@@ -1,4 +1,5 @@
 import Png.Native.ColorConvert
+import PngTest.Helpers
 
 /-!
 # Color Conversion Tests
@@ -9,12 +10,8 @@ grayscale, RGB, gray+alpha, 16-bit variants, and palette expansion.
 
 namespace PngTest.ColorConvert
 
-open Png
+open Png PngTest
 open Png.Native.ColorConvert
-
-def check (cond : Bool) (msg : String) : IO Unit :=
-  if cond then pure ()
-  else throw (.userError s!"FAIL: {msg}")
 
 /-! ## grayscaleToRGBA -/
 

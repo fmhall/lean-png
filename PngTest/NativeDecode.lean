@@ -1,5 +1,6 @@
 import Png.Native.Decode
 import Png.FFI
+import PngTest.Helpers
 
 /-!
 # Native Decode Tests
@@ -18,12 +19,8 @@ decode them natively.
 
 namespace PngTest.NativeDecode
 
-open Png
+open Png PngTest
 open Png.Native.Decode
-
-def check (cond : Bool) (msg : String) : IO Unit :=
-  if cond then pure ()
-  else throw (.userError s!"FAIL: {msg}")
 
 /-! ## PngSuite native vs FFI conformance -/
 
