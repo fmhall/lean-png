@@ -427,10 +427,10 @@ private theorem extractPass_go_content (srcPixels : ByteArray) (srcWidth : Nat) 
     have hi : i < total := by omega
     by_cases hki : k = i
     · subst hki
-      simp only [Nat.sub_self, Nat.mul_zero, Nat.zero_add]
+      simp only [Nat.sub_self, Nat.mul_zero]
       rw [extractPass_go_prefix _ _ _ _ _ _ _ _
           (by simp only [ByteArray.size_push]; omega)]
-      simp only [getPixel, show subW > 0 from hsubW_pos, ↓reduceIte, Nat.add_zero]
+      simp only [getPixel, Nat.add_zero]
       -- Match on ch FIRST to resolve Fin coercion, then split on bounds
       match ch with
       | ⟨0, _⟩ => split <;> (rw [push4_getElem!]; try rfl)
@@ -557,7 +557,7 @@ private theorem fromSubCol_inj (p : Fin 7) {a b : Nat}
 
 -- Within a pass, different sub-image pixel indices map to different full-image positions
 private theorem pass_pixel_pos_inj (p : Fin 7) (subW fullWidth : Nat)
-    (k1 k2 : Nat) (hsubW_pos : subW > 0)
+    (k1 k2 : Nat) (_hsubW_pos : subW > 0)
     (hfc1 : fromSubCol p (k1 % subW) < fullWidth)
     (hfc2 : fromSubCol p (k2 % subW) < fullWidth)
     (heq : fromSubRow p (k1 / subW) * fullWidth + fromSubCol p (k1 % subW) =
@@ -646,7 +646,7 @@ private theorem scatterPass_go_write_byte
   split
   · omega
   · rename_i hlt
-    simp only [show subW > 0 from hsubW_pos, ↓reduceIte]
+    simp only []
     by_cases hki : k = i
     · -- This iteration writes our byte; remaining iterations preserve it
       rw [show k / subW = i / subW by rw [hki],
@@ -711,7 +711,7 @@ private theorem adam7Scatter_go_preserve_after (subImages : Array PngImage) (buf
           have := adam7_uniqueness (j / 4 / fullWidth) (j / 4 % fullWidth)
             ⟨startP, hlt⟩ p hq_own hp_own
           have := congrArg Fin.val this
-          simp only [Fin.val_mk] at this; omega)
+          simp only [] at this; omega)
         hfw_pos (hsw ⟨startP, hlt⟩)
     · rename_i hp_nsub
       have : 7 - (startP + 1) < 7 - startP := by omega
