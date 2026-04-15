@@ -24,6 +24,7 @@ import Png.Spec.FilterCorrect
 import Png.Spec.IdatCorrect
 import Png.Spec.RoundtripCorrect
 import Png.Spec.InterlaceCorrect
+import Png.Spec.PngValid
 
 /-!
 # lean-png

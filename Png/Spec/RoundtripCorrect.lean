@@ -957,7 +957,7 @@ private theorem extractIdatData_sandwich
 /-! ## Exact chunk array characterization -/
 
 /-- parseChunks on encodePng returns exactly #[ihdr] ++ idats ++ #[iend]. -/
-private theorem parseChunks_encodePng_result (image : PngImage) (strategy : FilterStrategy) :
+theorem parseChunks_encodePng_result (image : PngImage) (strategy : FilterStrategy) :
     let ihdr := mkIHDRChunk image.width image.height
     let idats := Idat.compressAndSplit (filterScanlines image.pixels image.width image.height strategy)
     let _iend := mkIENDChunk
