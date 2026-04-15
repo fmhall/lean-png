@@ -27,6 +27,7 @@ import Png.Spec.InterlaceCorrect
 import Png.Spec.PngValid
 import Png.Spec.InterlacedRoundtripCorrect
 import Png.Spec.OverflowSafe
+import Png.Spec.DecompBombSafe
 
 /-!
 # lean-png

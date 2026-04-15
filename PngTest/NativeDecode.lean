@@ -339,6 +339,39 @@ def testGrayscale1 : IO Unit := do
       0, 0, 0, 255,  255, 255, 255, 255,  0, 0, 0, 255,  0, 0, 0, 255]
     check (img.pixels == expected) s!"pixel mismatch: got size {img.pixels.size}"
 
+/-! ## Corrupt PngSuite rejection tests -/
+
+/-- Verify that all 14 corrupt PngSuite files (prefix 'x') are rejected
+    by the native decoder. Each must return `.error`, not `.ok`. -/
+def runCorruptPngSuite : IO (Nat × Nat) := do
+  let dir := "testdata/pngsuite"
+  let entries ← do
+    try
+      let items ← System.FilePath.readDir dir
+      pure items.toList
+    catch _ =>
+      IO.eprintln s!"  SKIP: directory {dir} not found"
+      return (0, 0)
+  let corruptFiles := entries.filter fun e =>
+    e.fileName.startsWith "x" && e.fileName.endsWith ".png"
+  let corruptFiles := corruptFiles.mergeSort fun a b =>
+    a.fileName < b.fileName
+  if corruptFiles.isEmpty then
+    IO.eprintln s!"  SKIP: no corrupt .png files in {dir}"
+    return (0, 0)
+  let mut passed := 0
+  let mut failed := 0
+  for entry in corruptFiles do
+    let data ← IO.FS.readBinFile entry.path
+    match Png.Native.Decode.decodePng data with
+    | .error _ =>
+      IO.println s!"  pass (rejected)      {entry.fileName}"
+      passed := passed + 1
+    | .ok _ =>
+      IO.eprintln s!"  FAIL: {entry.fileName} was accepted (should be rejected)"
+      failed := failed + 1
+  return (passed, failed)
+
 /-! ## Test runner -/
 
 def runAll : IO Unit := do
@@ -376,5 +409,11 @@ def runAll : IO Unit := do
   IO.println s!"PngSuite native: {suitePass} passed, {suiteFail} failed, {suiteSkip} skipped"
   if suiteFail > 0 then
     throw (.userError s!"{suiteFail} PngSuite native test(s) failed")
+  IO.println ""
+  IO.println "--- Corrupt PngSuite rejection ---"
+  let (corruptPass, corruptFail) ← runCorruptPngSuite
+  IO.println s!"Corrupt PngSuite: {corruptPass} rejected (pass), {corruptFail} accepted (fail)"
+  if corruptFail > 0 then
+    throw (.userError s!"{corruptFail} corrupt PngSuite file(s) were incorrectly accepted")
 
 end PngTest.NativeDecode
