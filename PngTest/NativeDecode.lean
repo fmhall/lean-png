@@ -80,7 +80,7 @@ def runPngSuiteNative : IO (Nat × Nat × Nat) := do
     catch _ =>
       IO.eprintln s!"  SKIP: directory {dir} not found"
       return (0, 0, 1)
-  -- Filter to non-interlaced basic images (basn prefix) plus other non-interlaced
+  -- Filter to valid PngSuite images (skip corrupt 'x' prefix files)
   let pngFiles := entries.filter fun e =>
     e.fileName.endsWith ".png" && !e.fileName.startsWith "x"
   let pngFiles := pngFiles.mergeSort fun a b =>
@@ -92,17 +92,13 @@ def runPngSuiteNative : IO (Nat × Nat × Nat) := do
   let mut failed := 0
   let mut skipped := 0
   for entry in pngFiles do
-    -- Only test non-interlaced images (check IHDR first)
     let data ← IO.FS.readBinFile entry.path.toString
     match Png.parseIHDR data with
     | .error _ => skipped := skipped + 1
-    | .ok ihdr =>
-      if ihdr.interlaceMethod != .none then
-        skipped := skipped + 1
-      else
-        let ok ← testNativeVsFFI entry.path.toString entry.fileName
-        if ok then passed := passed + 1
-        else failed := failed + 1
+    | .ok _ =>
+      let ok ← testNativeVsFFI entry.path.toString entry.fileName
+      if ok then passed := passed + 1
+      else failed := failed + 1
   return (passed, failed, skipped)
 
 /-! ## Synthetic color type tests -/

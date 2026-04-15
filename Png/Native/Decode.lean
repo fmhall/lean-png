@@ -2,15 +2,19 @@ import Png.Native.Chunk
 import Png.Native.Filter
 import Png.Native.Idat
 import Png.Native.ColorConvert
+import Png.Native.Interlace
 
 /-!
 # PNG Decoder
 
-Pure Lean PNG decoder for non-interlaced PNG images supporting all color types.
+Pure Lean PNG decoder for all PNG images supporting all color types,
+including Adam7-interlaced images.
 
 Chains: PNG bytes → chunk parse → extract IDAT → decompress → unfilter → color convert → PngImage.
 
 Each decompressed scanline is prefixed by a 1-byte filter type, per PNG specification §9.
+For interlaced images, the decompressed stream contains 7 sub-images concatenated,
+each with its own filter-byte-prefixed scanlines.
 -/
 
 namespace Png.Native.Decode
@@ -18,6 +22,7 @@ namespace Png.Native.Decode
 open Png
 open Png.Native.Filter
 open Png.Native.ColorConvert
+open Png.Native.Interlace
 open Png.Idat
 
 /-- Find the first chunk with a given chunk type. Uses well-founded recursion. -/
@@ -191,8 +196,63 @@ def convertToRGBA (rawPixels : ByteArray) (colorType : ColorType) (bitDepth : UI
       else .error s!"unsupported bit depth {bd} for palette"
   | _, _ => .error s!"unsupported color type / bit depth combination"
 
+/-- Compute the scanline byte count for a sub-image pass.
+    `passScanlineBytes = (passWidth * channels * bitDepth + 7) / 8` -/
+private def passScanlineBytes (pw : Nat) (colorType : ColorType) (bitDepth : UInt8) : Nat :=
+  (pw * IHDRInfo.channels colorType * bitDepth.toNat + 7) / 8
+
+/-- Compute the total decompressed size for a single Adam7 pass.
+    Empty passes (width=0 or height=0) contribute 0 bytes.
+    Non-empty passes contribute `passHeight * (1 + passScanlineBytes)`. -/
+private def passDecompressedSize (pw ph : Nat) (colorType : ColorType) (bitDepth : UInt8) : Nat :=
+  if pw == 0 || ph == 0 then 0
+  else ph * (1 + passScanlineBytes pw colorType bitDepth)
+
+/-- Decode a single Adam7 pass sub-image from its portion of the decompressed stream.
+    Returns RGBA pixel data for this pass. Skips empty passes. -/
+private def decodePass (passData : ByteArray) (pw ph : Nat)
+    (colorType : ColorType) (bitDepth : UInt8) (bpp : Nat)
+    (plte : Option PLTEInfo) (trns : Option TRNSInfo) : Except String PngImage := do
+  if pw == 0 || ph == 0 then
+    pure { width := 0, height := 0, pixels := ByteArray.empty }
+  else
+    let slBytes := passScanlineBytes pw colorType bitDepth
+    let rawPixels ← unfilterScanlines passData pw.toUInt32 ph.toUInt32 bpp slBytes
+    let pixels ← convertToRGBA rawPixels colorType bitDepth pw ph plte trns
+    pure { width := pw.toUInt32, height := ph.toUInt32, pixels }
+
+/-- Decode all 7 Adam7 passes from the decompressed IDAT stream.
+    Splits the stream into per-pass regions, decodes each, and scatters
+    the sub-images into the full-size output. -/
+private def decodeInterlaced (ihdr : IHDRInfo) (decompressed : ByteArray)
+    (plte : Option PLTEInfo) (trns : Option TRNSInfo) : Except String PngImage :=
+  let bpp := ihdr.bytesPerPixel
+  let w := ihdr.width.toNat
+  let h := ihdr.height.toNat
+  go ihdr decompressed plte trns bpp w h 0 0 #[]
+where
+  go (ihdr : IHDRInfo) (decompressed : ByteArray)
+      (plte : Option PLTEInfo) (trns : Option TRNSInfo)
+      (bpp w h : Nat) (p offset : Nat) (subImages : Array PngImage)
+      : Except String PngImage :=
+    if hp : p < 7 then
+      let pw := passWidth ⟨p, hp⟩ w
+      let ph := passHeight ⟨p, hp⟩ h
+      let passSize := passDecompressedSize pw ph ihdr.colorType ihdr.bitDepth
+      if offset + passSize > decompressed.size then
+        .error s!"interlaced IDAT: pass {p} needs {passSize} bytes at offset {offset}, but only {decompressed.size - offset} available"
+      else
+        let passData := decompressed.extract offset (offset + passSize)
+        match decodePass passData pw ph ihdr.colorType ihdr.bitDepth bpp plte trns with
+        | .error e => .error e
+        | .ok subImg =>
+          go ihdr decompressed plte trns bpp w h (p + 1) (offset + passSize) (subImages.push subImg)
+    else
+      .ok (adam7Scatter subImages w h)
+  termination_by 7 - p
+
 /-- Decode PNG file bytes to a PngImage.
-    Supports non-interlaced images with all PNG color types. -/
+    Supports all PNG images including Adam7-interlaced, with all color types. -/
 def decodePng (data : ByteArray) : Except String PngImage := do
   -- 1. Parse chunks (validates PNG signature internally)
   let chunks ← parseChunks data
@@ -204,9 +264,24 @@ def decodePng (data : ByteArray) : Except String PngImage := do
   if !firstChunk.isIHDR then
     throw "first chunk is not IHDR"
   let ihdr ← IHDRInfo.fromBytes firstChunk.data
-  -- 3. Validate: non-interlaced only
-  if ihdr.interlaceMethod != .none then
-    throw "interlaced images not supported"
+  -- 3. Check interlace method
+  if ihdr.interlaceMethod != .none then do
+    -- Adam7 interlaced path
+    let plte ← match ihdr.colorType with
+      | .palette =>
+        match findChunk chunks ChunkType.PLTE with
+        | none => throw "palette color type but no PLTE chunk found"
+        | some plteChunk => pure (some (← PLTEInfo.fromBytes plteChunk.data))
+      | _ => pure none
+    let trns ← match ihdr.colorType with
+      | .grayscaleAlpha | .rgba => pure none
+      | _ => match findChunk chunks ChunkType.tRNS with
+        | some trnsChunk => pure (some (← TRNSInfo.fromBytes trnsChunk.data ihdr.colorType))
+        | none => pure none
+    let decompressed ← extractAndDecompress chunks
+    decodeInterlaced ihdr decompressed plte trns
+  else
+  -- Non-interlaced path (unchanged)
   -- 4. Compute bytes-per-pixel for filter and scanline bytes
   let bpp := ihdr.bytesPerPixel
   let scanlineBytes := ihdr.scanlineBytes
