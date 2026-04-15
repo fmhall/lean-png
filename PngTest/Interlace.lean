@@ -1,4 +1,5 @@
 import Png.Native.Interlace
+import PngTest.Helpers
 
 /-!
 # Adam7 Interlace Tests
@@ -9,13 +10,8 @@ roundtrips, extract/scatter roundtrips, and edge cases.
 
 namespace PngTest.Interlace
 
+open Png PngTest
 open Png.Native.Interlace
-open Png
-
-/-- Helper: assert condition with message. -/
-def check (cond : Bool) (msg : String) : IO Unit :=
-  if cond then pure ()
-  else throw (.userError s!"FAIL: {msg}")
 
 /-! ## Pass dimension tests -/
 

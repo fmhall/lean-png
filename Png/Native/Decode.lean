@@ -44,21 +44,25 @@ where
 def unfilterScanlines (decompressed : ByteArray) (width height : UInt32)
     (bpp scanlineBytes : Nat) : Except String ByteArray :=
   let rowStride := 1 + scanlineBytes  -- filter byte + pixel data
-  if decompressed.size != height.toNat * rowStride then
-    .error s!"decompressed size {decompressed.size} != expected {height.toNat * rowStride}"
-  else
+  if hsz : decompressed.size = height.toNat * rowStride then
     .ok (go decompressed width height bpp scanlineBytes rowStride 0
-      ByteArray.empty (ByteArray.mk (Array.replicate scanlineBytes 0)))
+      ByteArray.empty (ByteArray.mk (Array.replicate scanlineBytes 0)) hsz (by omega))
+  else
+    .error s!"decompressed size {decompressed.size} != expected {height.toNat * rowStride}"
 where
   go (decompressed : ByteArray) (width height : UInt32) (bpp scanlineBytes rowStride : Nat)
-      (r : Nat) (result priorRow : ByteArray) : ByteArray :=
-    if r < height.toNat then
+      (r : Nat) (result priorRow : ByteArray)
+      (hsz : decompressed.size = height.toNat * rowStride)
+      (hrs : rowStride ≥ 1) : ByteArray :=
+    if hr : r < height.toNat then
       let rowStart := r * rowStride
-      let ftByte := decompressed.get! rowStart
+      have : rowStart < decompressed.size := by
+        rw [hsz]; exact Nat.mul_lt_mul_of_pos_right hr hrs
+      let ftByte := decompressed[rowStart]
       let ft := FilterType.ofUInt8 ftByte
       let filteredRow := decompressed.extract (rowStart + 1) (rowStart + 1 + scanlineBytes)
       let rawRow := unfilterRow ft bpp filteredRow priorRow
-      go decompressed width height bpp scanlineBytes rowStride (r + 1) (result ++ rawRow) rawRow
+      go decompressed width height bpp scanlineBytes rowStride (r + 1) (result ++ rawRow) rawRow hsz hrs
     else result
   termination_by height.toNat - r
 
@@ -74,8 +78,8 @@ def scaleSubByte (data : ByteArray) (bitDepth : Nat) : ByteArray :=
   go data scale 0 ByteArray.empty
 where
   go (data : ByteArray) (scale : Nat) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i < data.size then
-      let v := data.get! i
+    if h : i < data.size then
+      let v := data[i]
       go data scale (i + 1) (acc.push (v.toNat * scale).toUInt8)
     else acc
   termination_by data.size - i
@@ -117,26 +121,42 @@ def applyTrnsKey (pixels : ByteArray) (trns : TRNSInfo) (bitDepth : UInt8) : Byt
   | _ => pixels  -- palette tRNS handled separately
 where
   goGray (pixels : ByteArray) (transGray : UInt8) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i + 3 < pixels.size then
-      let r := pixels.get! i
-      let g := pixels.get! (i + 1)
-      let b := pixels.get! (i + 2)
-      let a := pixels.get! (i + 3)
+    if h : i + 3 < pixels.size then
+      let r := pixels[i]'(by omega)
+      let g := pixels[i + 1]'(by omega)
+      let b := pixels[i + 2]'(by omega)
+      let a := pixels[i + 3]'(by omega)
       -- For grayscale→RGBA, R=G=B=gray. Check if the gray matches the transparent value.
       let a' := if r == transGray then 0 else a
       goGray pixels transGray (i + 4) (acc.push r |>.push g |>.push b |>.push a')
     else acc
   termination_by pixels.size - i
   goRGB (pixels : ByteArray) (transR transG transB : UInt8) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i + 3 < pixels.size then
-      let r := pixels.get! i
-      let g := pixels.get! (i + 1)
-      let b := pixels.get! (i + 2)
-      let a := pixels.get! (i + 3)
+    if h : i + 3 < pixels.size then
+      let r := pixels[i]'(by omega)
+      let g := pixels[i + 1]'(by omega)
+      let b := pixels[i + 2]'(by omega)
+      let a := pixels[i + 3]'(by omega)
       let a' := if r == transR && g == transG && b == transB then 0 else a
       goRGB pixels transR transG transB (i + 4) (acc.push r |>.push g |>.push b |>.push a')
     else acc
   termination_by pixels.size - i
+
+/-- Unpack sub-byte samples (1, 2, or 4 bits) or return an error for unsupported depths. -/
+private def unpackSubByteOrError (rawPixels : ByteArray) (width height : Nat)
+    (bitDepth : UInt8) (label : String) : Except String ByteArray :=
+  if _h : bitDepth = 1 then
+    pure (unpackSubByte rawPixels width height 1 (Or.inl rfl))
+  else if _h : bitDepth = 2 then
+    pure (unpackSubByte rawPixels width height 2 (Or.inr (Or.inl rfl)))
+  else if _h : bitDepth = 4 then
+    pure (unpackSubByte rawPixels width height 4 (Or.inr (Or.inr rfl)))
+  else .error s!"unsupported bit depth {bitDepth} for {label}"
+
+/-- Optionally apply tRNS color-key transparency after conversion to RGBA. -/
+private def applyTrnsOpt (rgba : ByteArray) (trns : Option TRNSInfo)
+    (bitDepth : UInt8) : ByteArray :=
+  match trns with | some t => applyTrnsKey rgba t bitDepth | none => rgba
 
 /-- Convert raw unfiltered pixel data to RGBA 8-bit format based on color type and bit depth.
     For palette images, requires a PLTE chunk and optional tRNS chunk.
@@ -147,53 +167,22 @@ def convertToRGBA (rawPixels : ByteArray) (colorType : ColorType) (bitDepth : UI
   match colorType, bitDepth with
   | .rgba, 8 => pure rawPixels
   | .rgba, 16 => pure (rgba16ToRGBA rawPixels)
-  | .rgb, 8 =>
-    let rgba := rgbToRGBA rawPixels
-    pure (match trns with | some t => applyTrnsKey rgba t 8 | none => rgba)
-  | .rgb, 16 =>
-    let rgba := rgb16ToRGBA rawPixels
-    pure (match trns with | some t => applyTrnsKey rgba t 16 | none => rgba)
-  | .grayscale, 8 =>
-    let rgba := grayscaleToRGBA rawPixels
-    pure (match trns with | some t => applyTrnsKey rgba t 8 | none => rgba)
-  | .grayscale, 16 =>
-    let rgba := grayscale16ToRGBA rawPixels
-    pure (match trns with | some t => applyTrnsKey rgba t 16 | none => rgba)
+  | .rgb, 8 => pure (applyTrnsOpt (rgbToRGBA rawPixels) trns 8)
+  | .rgb, 16 => pure (applyTrnsOpt (rgb16ToRGBA rawPixels) trns 16)
+  | .grayscale, 8 => pure (applyTrnsOpt (grayscaleToRGBA rawPixels) trns 8)
+  | .grayscale, 16 => pure (applyTrnsOpt (grayscale16ToRGBA rawPixels) trns 16)
   | .grayscaleAlpha, 8 => pure (grayAlphaToRGBA rawPixels)
   | .grayscaleAlpha, 16 => pure (grayAlpha16ToRGBA rawPixels)
-  | .grayscale, bd =>
-    if _hbd : bd = 1 then
-      let unpacked := unpackSubByte rawPixels width height 1 (Or.inl rfl)
-      let scaled := scaleSubByte unpacked 1
-      let rgba := grayscaleToRGBA scaled
-      pure (match trns with | some t => applyTrnsKey rgba t 1 | none => rgba)
-    else if _hbd : bd = 2 then
-      let unpacked := unpackSubByte rawPixels width height 2 (Or.inr (Or.inl rfl))
-      let scaled := scaleSubByte unpacked 2
-      let rgba := grayscaleToRGBA scaled
-      pure (match trns with | some t => applyTrnsKey rgba t 2 | none => rgba)
-    else if _hbd : bd = 4 then
-      let unpacked := unpackSubByte rawPixels width height 4 (Or.inr (Or.inr rfl))
-      let scaled := scaleSubByte unpacked 4
-      let rgba := grayscaleToRGBA scaled
-      pure (match trns with | some t => applyTrnsKey rgba t 4 | none => rgba)
-    else .error s!"unsupported bit depth {bd} for grayscale"
+  | .grayscale, bd => do
+    let unpacked ← unpackSubByteOrError rawPixels width height bd "grayscale"
+    pure (applyTrnsOpt (grayscaleToRGBA (scaleSubByte unpacked bd.toNat)) trns bd)
   | .palette, bd =>
     match plte with
     | none => .error "palette color type requires PLTE chunk"
-    | some plteInfo =>
-      if bd == 8 then
-        pure (expandPalette rawPixels plteInfo trns)
-      else if _hbd : bd = 1 then
-        let unpacked := unpackSubByte rawPixels width height 1 (Or.inl rfl)
-        pure (expandPalette unpacked plteInfo trns)
-      else if _hbd : bd = 2 then
-        let unpacked := unpackSubByte rawPixels width height 2 (Or.inr (Or.inl rfl))
-        pure (expandPalette unpacked plteInfo trns)
-      else if _hbd : bd = 4 then
-        let unpacked := unpackSubByte rawPixels width height 4 (Or.inr (Or.inr rfl))
-        pure (expandPalette unpacked plteInfo trns)
-      else .error s!"unsupported bit depth {bd} for palette"
+    | some plteInfo => do
+      let pixels ← if bd == 8 then pure rawPixels
+        else unpackSubByteOrError rawPixels width height bd "palette"
+      pure (expandPalette pixels plteInfo trns)
   | _, _ => .error s!"unsupported color type / bit depth combination"
 
 /-- Compute the scanline byte count for a sub-image pass.

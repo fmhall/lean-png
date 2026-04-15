@@ -1,5 +1,6 @@
 import Png.Native.Encode
 import Png.Native.Decode
+import PngTest.Helpers
 
 /-!
 # PNG Encode/Decode Roundtrip Tests
@@ -10,14 +11,9 @@ covering different filter strategies, image sizes, and error cases.
 
 namespace PngTest.Roundtrip
 
-open Png
+open Png PngTest
 open Png.Native.Encode
 open Png.Native.Decode
-
-/-- Helper: assert condition with message. -/
-def check (cond : Bool) (msg : String) : IO Unit :=
-  if cond then pure ()
-  else throw (.userError s!"FAIL: {msg}")
 
 /-! ## Basic roundtrip tests -/
 

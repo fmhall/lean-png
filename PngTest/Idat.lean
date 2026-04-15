@@ -1,4 +1,5 @@
 import Png.Native.Idat
+import PngTest.Helpers
 
 /-!
 # IDAT Pipeline Tests
@@ -9,13 +10,8 @@ size validation, chunk splitting, and edge cases.
 
 namespace PngTest.Idat
 
-open Png
+open Png PngTest
 open Png.Idat
-
-/-- Helper: assert condition with message. -/
-def check (cond : Bool) (msg : String) : IO Unit :=
-  if cond then pure ()
-  else throw (.userError s!"FAIL: {msg}")
 
 /-! ## Compress/decompress roundtrip -/
 

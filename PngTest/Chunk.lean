@@ -1,4 +1,5 @@
 import Png.Native.Chunk
+import PngTest.Helpers
 
 /-!
 # Chunk Framing Tests
@@ -9,12 +10,7 @@ IHDR parsing, CRC32 validation, and chunk sequence validity.
 
 namespace PngTest.Chunk
 
-open Png
-
-/-- Helper: assert condition with message. -/
-def check (cond : Bool) (msg : String) : IO Unit :=
-  if cond then pure ()
-  else throw (.userError s!"FAIL: {msg}")
+open Png PngTest
 
 /-! ## PNG Signature tests -/
 

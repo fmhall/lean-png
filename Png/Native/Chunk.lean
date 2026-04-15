@@ -158,22 +158,24 @@ namespace PLTEInfo
 def fromBytes (data : ByteArray) : Except String PLTEInfo := do
   if data.size == 0 then
     throw "PLTE: empty palette"
-  if data.size % 3 != 0 then
+  if hmod : data.size % 3 != 0 then
     throw s!"PLTE: data length {data.size} not divisible by 3"
+  else
   let numEntries := data.size / 3
   if numEntries > 256 then
     throw s!"PLTE: {numEntries} entries exceeds maximum of 256"
-  pure { entries := go data numEntries 0 #[] }
+  pure { entries := go data numEntries 0 #[] (by omega) }
 where
-  go (data : ByteArray) (n i : Nat) (acc : Array PaletteEntry) : Array PaletteEntry :=
-    if i < n then
+  go (data : ByteArray) (n i : Nat) (acc : Array PaletteEntry)
+      (hn : n * 3 ≤ data.size) : Array PaletteEntry :=
+    if hi : i < n then
       let off := i * 3
       let entry : PaletteEntry := {
-        r := data.get! off
-        g := data.get! (off + 1)
-        b := data.get! (off + 2)
+        r := data[off]'(by omega)
+        g := data[off + 1]'(by omega)
+        b := data[off + 2]'(by omega)
       }
-      go data n (i + 1) (acc.push entry)
+      go data n (i + 1) (acc.push entry) hn
     else acc
   termination_by n - i
 

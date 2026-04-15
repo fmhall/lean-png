@@ -98,8 +98,8 @@ def grayscaleToRGBA (data : ByteArray) : ByteArray :=
   go data 0 ByteArray.empty
 where
   go (data : ByteArray) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i < data.size then
-      let g := data.get! i
+    if h : i < data.size then
+      let g := data[i]
       go data (i + 1) (acc.push g |>.push g |>.push g |>.push 255)
     else acc
   termination_by data.size - i
@@ -122,10 +122,10 @@ def rgbToRGBA (data : ByteArray) : ByteArray :=
   go data 0 ByteArray.empty
 where
   go (data : ByteArray) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i + 2 < data.size then
-      let r := data.get! i
-      let g := data.get! (i + 1)
-      let b := data.get! (i + 2)
+    if h : i + 2 < data.size then
+      let r := data[i]'(by omega)
+      let g := data[i + 1]'(by omega)
+      let b := data[i + 2]'(by omega)
       go data (i + 3) (acc.push r |>.push g |>.push b |>.push 255)
     else acc
   termination_by data.size - i
@@ -158,9 +158,9 @@ def grayAlphaToRGBA (data : ByteArray) : ByteArray :=
   go data 0 ByteArray.empty
 where
   go (data : ByteArray) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i + 1 < data.size then
-      let g := data.get! i
-      let a := data.get! (i + 1)
+    if h : i + 1 < data.size then
+      let g := data[i]'(by omega)
+      let a := data[i + 1]'(by omega)
       go data (i + 2) (acc.push g |>.push g |>.push g |>.push a)
     else acc
   termination_by data.size - i
@@ -195,8 +195,8 @@ def grayscale16ToRGBA (data : ByteArray) : ByteArray :=
   go data 0 ByteArray.empty
 where
   go (data : ByteArray) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i + 1 < data.size then
-      let g := data.get! i  -- high byte
+    if h : i + 1 < data.size then
+      let g := data[i]'(by omega)  -- high byte
       go data (i + 2) (acc.push g |>.push g |>.push g |>.push 255)
     else acc
   termination_by data.size - i
@@ -206,10 +206,10 @@ def rgb16ToRGBA (data : ByteArray) : ByteArray :=
   go data 0 ByteArray.empty
 where
   go (data : ByteArray) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i + 5 < data.size then
-      let r := data.get! i
-      let g := data.get! (i + 2)
-      let b := data.get! (i + 4)
+    if h : i + 5 < data.size then
+      let r := data[i]'(by omega)
+      let g := data[i + 2]'(by omega)
+      let b := data[i + 4]'(by omega)
       go data (i + 6) (acc.push r |>.push g |>.push b |>.push 255)
     else acc
   termination_by data.size - i
@@ -219,9 +219,9 @@ def grayAlpha16ToRGBA (data : ByteArray) : ByteArray :=
   go data 0 ByteArray.empty
 where
   go (data : ByteArray) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i + 3 < data.size then
-      let g := data.get! i
-      let a := data.get! (i + 2)
+    if h : i + 3 < data.size then
+      let g := data[i]'(by omega)
+      let a := data[i + 2]'(by omega)
       go data (i + 4) (acc.push g |>.push g |>.push g |>.push a)
     else acc
   termination_by data.size - i
@@ -231,11 +231,11 @@ def rgba16ToRGBA (data : ByteArray) : ByteArray :=
   go data 0 ByteArray.empty
 where
   go (data : ByteArray) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i + 7 < data.size then
-      let r := data.get! i
-      let g := data.get! (i + 2)
-      let b := data.get! (i + 4)
-      let a := data.get! (i + 6)
+    if h : i + 7 < data.size then
+      let r := data[i]'(by omega)
+      let g := data[i + 2]'(by omega)
+      let b := data[i + 4]'(by omega)
+      let a := data[i + 6]'(by omega)
       go data (i + 8) (acc.push r |>.push g |>.push b |>.push a)
     else acc
   termination_by data.size - i
@@ -254,11 +254,11 @@ def expandPalette (data : ByteArray) (plte : PLTEInfo)
 where
   go (data : ByteArray) (entries : Array PaletteEntry) (alphas : ByteArray)
       (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i < data.size then
-      let idx := data.get! i
+    if hi : i < data.size then
+      let idx := data[i]
       let entry := if h : idx.toNat < entries.size then entries[idx.toNat]
                    else { r := 0, g := 0, b := 0 }
-      let alpha := if idx.toNat < alphas.size then alphas.get! idx.toNat else 255
+      let alpha := if ha : idx.toNat < alphas.size then alphas[idx.toNat] else 255
       go data entries alphas (i + 1) (acc.push entry.r |>.push entry.g |>.push entry.b |>.push alpha)
     else acc
   termination_by data.size - i

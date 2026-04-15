@@ -712,16 +712,20 @@ private theorem unfilter_filter_go (pixels : ByteArray) (width height : UInt32)
     (hfr_size : filterResult.size = r * (1 + width.toNat * 4))
     (hfiltered : filtered = filterScanlines.go pixels width height strategy 4 r filterResult priorRow)
     (hur : unfiltResult = pixels.extract 0 (r * (width.toNat * 4)))
-    (hvalid : pixels.size = width.toNat * height.toNat * 4) :
+    (hvalid : pixels.size = width.toNat * height.toNat * 4)
+    (hsz : filtered.size = height.toNat * (1 + width.toNat * 4))
+    (hrs : (1 + width.toNat * 4) ≥ 1) :
     unfilterScanlines.go filtered width height 4 (width.toNat * 4)
-      (1 + width.toNat * 4) r unfiltResult priorRow = pixels := by
+      (1 + width.toNat * 4) r unfiltResult priorRow hsz hrs = pixels := by
   unfold unfilterScanlines.go
   split
   case isTrue hr =>
     -- Show the ft byte read matches the strategy's filter type
-    have hft_get : filtered.get! (r * (1 + width.toNat * 4)) =
+    have hrowStart_lt : r * (1 + width.toNat * 4) < filtered.size := by
+      rw [hsz]; exact Nat.mul_lt_mul_of_pos_right hr hrs
+    have hft_get : filtered[r * (1 + width.toNat * 4)] =
         (strategy.getFilterType r).toUInt8 := by
-      rw [ByteArray.get!_eq_getElem!,
+      rw [← ByteArray.getElem!_eq_getElem _ _ hrowStart_lt,
           show r * (1 + width.toNat * 4) = filterResult.size from by rw [hfr_size],
           hfiltered]
       exact filterScanlines_go_get_ft_byte pixels width height strategy r filterResult priorRow
@@ -751,7 +755,7 @@ private theorem unfilter_filter_go (pixels : ByteArray) (width height : UInt32)
               Nat.max_eq_right (by omega),
               show r * (width.toNat * 4) + width.toNat * 4 = (r + 1) * (width.toNat * 4) from
                 by rw [Nat.succ_mul]])
-      hvalid
+      hvalid hsz hrs
   case isFalse hr =>
     -- Base case: r ≥ height, both go functions return their accumulators
     have heq : r = height.toNat := by omega
@@ -772,8 +776,8 @@ theorem unfilterScanlines_filterScanlines (pixels : ByteArray) (width height : U
       (width.toNat * 4) = .ok pixels := by
   have hfsz := filterScanlines_size pixels width height strategy hvalid
   unfold unfilterScanlines
-  simp only [hfsz, bne_self_eq_false, Bool.false_eq_true, ↓reduceIte]
-  -- Goal: .ok (unfilterScanlines.go F ... 0 empty zeroPrior) = .ok pixels
+  rw [dif_pos hfsz]
+  -- Goal: .ok (unfilterScanlines.go F ... 0 empty zeroPrior hsz hrs) = .ok pixels
   congr 1
   -- Apply the go-level roundtrip
   have hext0 : ByteArray.empty = pixels.extract 0 (0 * (width.toNat * 4)) := by
@@ -788,7 +792,7 @@ theorem unfilterScanlines_filterScanlines (pixels : ByteArray) (width height : U
     (by simp only [ByteArray.size_empty, Nat.zero_mul])
     (by unfold filterScanlines; rfl)
     hext0
-    hvalid
+    hvalid hfsz (by omega)
 
 /-- The IDAT roundtrip: compressing then decompressing filtered scanlines
     recovers the original filtered data. -/
