@@ -44,9 +44,10 @@ def pngSignature : ByteArray :=
 
 /-- Validate the PNG signature at the start of a byte array. -/
 def validateSignature (data : ByteArray) : Bool :=
-  data.size ≥ 8 &&
-  data[0]! == 137 && data[1]! == 80 && data[2]! == 78 && data[3]! == 71 &&
-  data[4]! == 13 && data[5]! == 10 && data[6]! == 26 && data[7]! == 10
+  if h : data.size ≥ 8 then
+    data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71 &&
+    data[4] == 13 && data[5] == 10 && data[6] == 26 && data[7] == 10
+  else false
 
 /-! ## Chunk types -/
 
@@ -122,28 +123,29 @@ def toBytes (ihdr : IHDRInfo) : ByteArray :=
          ihdr.filterMethod, ihdr.interlaceMethod.toUInt8]
 
 /-- Parse IHDR from 13 bytes of chunk data. -/
-def fromBytes (data : ByteArray) : Except String IHDRInfo := do
-  if data.size != 13 then
-    throw s!"IHDR: expected 13 bytes, got {data.size}"
-  let width := readUInt32BE data 0
-  let height := readUInt32BE data 4
-  if width == 0 then throw "IHDR: width is 0"
-  if height == 0 then throw "IHDR: height is 0"
-  let bitDepth := data[8]!
-  let colorType ← match ColorType.ofUInt8 data[9]! with
-    | some ct => pure ct
-    | none => throw s!"IHDR: invalid color type {data[9]!}"
-  let compressionMethod := data[10]!
-  if compressionMethod != 0 then
-    throw s!"IHDR: invalid compression method {compressionMethod}"
-  let filterMethod := data[11]!
-  if filterMethod != 0 then
-    throw s!"IHDR: invalid filter method {filterMethod}"
-  let interlaceMethod ← match InterlaceMethod.ofUInt8 data[12]! with
-    | some im => pure im
-    | none => throw s!"IHDR: invalid interlace method {data[12]!}"
-  pure { width, height, bitDepth, colorType, compressionMethod,
-         filterMethod, interlaceMethod }
+def fromBytes (data : ByteArray) : Except String IHDRInfo :=
+  if h : data.size = 13 then do
+    let width := readUInt32BE data 0
+    let height := readUInt32BE data 4
+    if width == 0 then throw "IHDR: width is 0"
+    if height == 0 then throw "IHDR: height is 0"
+    let bitDepth := data[8]
+    let colorType ← match ColorType.ofUInt8 data[9] with
+      | some ct => pure ct
+      | none => throw s!"IHDR: invalid color type {data[9]}"
+    let compressionMethod := data[10]
+    if compressionMethod != 0 then
+      throw s!"IHDR: invalid compression method {compressionMethod}"
+    let filterMethod := data[11]
+    if filterMethod != 0 then
+      throw s!"IHDR: invalid filter method {filterMethod}"
+    let interlaceMethod ← match InterlaceMethod.ofUInt8 data[12] with
+      | some im => pure im
+      | none => throw s!"IHDR: invalid interlace method {data[12]}"
+    pure { width, height, bitDepth, colorType, compressionMethod,
+           filterMethod, interlaceMethod }
+  else
+    .error s!"IHDR: expected 13 bytes, got {data.size}"
 
 end IHDRInfo
 
@@ -263,10 +265,10 @@ termination_by chunks.size - i
     2. The last chunk is IEND
     3. IDAT chunks are contiguous (no non-IDAT between two IDATs) -/
 def validChunkSequence (chunks : Array PngChunk) : Bool :=
-  if chunks.size == 0 then false
+  if h : chunks.size = 0 then false
   else
-    let firstIsIHDR := chunks[0]!.isIHDR
-    let lastIsIEND := chunks[chunks.size - 1]!.isIEND
+    let firstIsIHDR := chunks[0].isIHDR
+    let lastIsIEND := chunks[chunks.size - 1].isIEND
     firstIsIHDR && lastIsIEND && idatContiguous chunks 0 false false
 
 end Png

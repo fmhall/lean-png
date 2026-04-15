@@ -48,10 +48,11 @@ where
 def decodePng (data : ByteArray) : Except String PngImage := do
   -- 1. Parse chunks (validates PNG signature internally)
   let chunks ← parseChunks data
-  if chunks.size == 0 then
+  if h : chunks.size = 0 then
     throw "no chunks found"
+  else
   -- 2. Extract and validate IHDR
-  let firstChunk := chunks[0]!
+  let firstChunk := chunks[0]
   if !firstChunk.isIHDR then
     throw "first chunk is not IHDR"
   let ihdr ← IHDRInfo.fromBytes firstChunk.data
