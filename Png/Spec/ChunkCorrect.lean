@@ -541,4 +541,233 @@ theorem serialize_crc_valid_append (c : PngChunk) (suffix : ByteArray) :
   rw [readUInt32BE_append_right _ _ _ (by rw [serialize_size]; omega)]
   exact serialize_crc_valid c
 
+/-! ## PLTE roundtrip -/
+
+/-- Size of `toBytes.go`: accumulator grows by `(entries.size - i) * 3`. -/
+theorem plte_toBytes_go_size (entries : Array PaletteEntry) (i : Nat) (acc : ByteArray) :
+    (PLTEInfo.toBytes.go entries i acc).size = acc.size + (entries.size - i) * 3 := by
+  unfold PLTEInfo.toBytes.go
+  split
+  case isTrue h =>
+    rw [plte_toBytes_go_size]
+    simp only [ByteArray.size_push]
+    omega
+  case isFalse h =>
+    omega
+termination_by entries.size - i
+
+/-- Top-level size: `plte.toBytes.size = plte.entries.size * 3`. -/
+theorem plte_toBytes_size (plte : PLTEInfo) :
+    plte.toBytes.size = plte.entries.size * 3 := by
+  simp only [PLTEInfo.toBytes]
+  rw [plte_toBytes_go_size]
+  have : (ByteArray.empty).size = 0 := rfl
+  omega
+
+/-- Prefix preservation: `toBytes.go` does not modify earlier accumulator bytes. -/
+theorem plte_toBytes_go_prefix (entries : Array PaletteEntry) (i : Nat) (acc : ByteArray)
+    (j : Nat) (hj : j < acc.size) :
+    (PLTEInfo.toBytes.go entries i acc)[j]! = acc[j]! := by
+  unfold PLTEInfo.toBytes.go
+  split
+  case isTrue h =>
+    have hj3 : j < (acc.push entries[i].r |>.push entries[i].g |>.push entries[i].b).size := by
+      simp only [ByteArray.size_push]; omega
+    rw [plte_toBytes_go_prefix _ _ _ _ hj3]
+    rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega)]
+    rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega)]
+    exact ByteArray.push_getElem!_lt _ _ _ hj
+  case isFalse => rfl
+termination_by entries.size - i
+
+/-- Content: the red byte of entry `k` is at position `acc.size + (k - i) * 3`. -/
+theorem plte_toBytes_go_r (entries : Array PaletteEntry) (i : Nat) (acc : ByteArray)
+    (k : Nat) (hki : i ≤ k) (hk : k < entries.size) :
+    (PLTEInfo.toBytes.go entries i acc)[acc.size + (k - i) * 3]! = entries[k].r := by
+  unfold PLTEInfo.toBytes.go
+  have hi : i < entries.size := by omega
+  rw [dif_pos hi]
+  simp only []  -- inline the `have e := entries[i]`
+  by_cases hik : i = k
+  · subst hik
+    simp only [Nat.sub_self, Nat.zero_mul, Nat.add_zero]
+    have hacc3 : acc.size < (acc.push entries[i].r |>.push entries[i].g |>.push entries[i].b).size := by
+      simp only [ByteArray.size_push]; omega
+    rw [plte_toBytes_go_prefix _ _ _ _ hacc3]
+    rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega)]
+    rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega)]
+    exact ByteArray.push_getElem!_eq _ _
+  · have acc3_size : (acc.push entries[i].r |>.push entries[i].g |>.push entries[i].b).size = acc.size + 3 := by
+      simp only [ByteArray.size_push]
+    rw [show acc.size + (k - i) * 3 = (acc.size + 3) + (k - (i + 1)) * 3 from by omega,
+        ← acc3_size]
+    exact plte_toBytes_go_r entries (i + 1) _ k (by omega) hk
+termination_by entries.size - i
+
+/-- Content: the green byte of entry `k` is at position `acc.size + (k - i) * 3 + 1`. -/
+theorem plte_toBytes_go_g (entries : Array PaletteEntry) (i : Nat) (acc : ByteArray)
+    (k : Nat) (hki : i ≤ k) (hk : k < entries.size) :
+    (PLTEInfo.toBytes.go entries i acc)[acc.size + (k - i) * 3 + 1]! = entries[k].g := by
+  unfold PLTEInfo.toBytes.go
+  have hi : i < entries.size := by omega
+  rw [dif_pos hi]
+  simp only []
+  by_cases hik : i = k
+  · subst hik
+    simp only [Nat.sub_self, Nat.zero_mul, Nat.add_zero]
+    have hacc3 : acc.size + 1 < (acc.push entries[i].r |>.push entries[i].g |>.push entries[i].b).size := by
+      simp only [ByteArray.size_push]; omega
+    rw [plte_toBytes_go_prefix _ _ _ _ hacc3]
+    rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega)]
+    rw [show acc.size + 1 = (acc.push entries[i].r).size from by simp only [ByteArray.size_push]]
+    exact ByteArray.push_getElem!_eq _ _
+  · have acc3_size : (acc.push entries[i].r |>.push entries[i].g |>.push entries[i].b).size = acc.size + 3 := by
+      simp only [ByteArray.size_push]
+    rw [show acc.size + (k - i) * 3 + 1 = (acc.size + 3) + (k - (i + 1)) * 3 + 1 from by omega,
+        ← acc3_size]
+    exact plte_toBytes_go_g entries (i + 1) _ k (by omega) hk
+termination_by entries.size - i
+
+/-- Content: the blue byte of entry `k` is at position `acc.size + (k - i) * 3 + 2`. -/
+theorem plte_toBytes_go_b (entries : Array PaletteEntry) (i : Nat) (acc : ByteArray)
+    (k : Nat) (hki : i ≤ k) (hk : k < entries.size) :
+    (PLTEInfo.toBytes.go entries i acc)[acc.size + (k - i) * 3 + 2]! = entries[k].b := by
+  unfold PLTEInfo.toBytes.go
+  have hi : i < entries.size := by omega
+  rw [dif_pos hi]
+  simp only []
+  by_cases hik : i = k
+  · subst hik
+    simp only [Nat.sub_self, Nat.zero_mul, Nat.add_zero]
+    have hacc3 : acc.size + 2 < (acc.push entries[i].r |>.push entries[i].g |>.push entries[i].b).size := by
+      simp only [ByteArray.size_push]; omega
+    rw [plte_toBytes_go_prefix _ _ _ _ hacc3]
+    rw [show acc.size + 2 = (acc.push entries[i].r |>.push entries[i].g).size from by
+      simp only [ByteArray.size_push]]
+    exact ByteArray.push_getElem!_eq _ _
+  · have acc3_size : (acc.push entries[i].r |>.push entries[i].g |>.push entries[i].b).size = acc.size + 3 := by
+      simp only [ByteArray.size_push]
+    rw [show acc.size + (k - i) * 3 + 2 = (acc.size + 3) + (k - (i + 1)) * 3 + 2 from by omega,
+        ← acc3_size]
+    exact plte_toBytes_go_b entries (i + 1) _ k (by omega) hk
+termination_by entries.size - i
+
+/-- Top-level: byte at position `k * 3` in `toBytes` is `entries[k].r`. -/
+theorem plte_toBytes_r (plte : PLTEInfo) (k : Nat) (hk : k < plte.entries.size) :
+    plte.toBytes[k * 3]! = plte.entries[k].r := by
+  simp only [PLTEInfo.toBytes]
+  rw [show k * 3 = 0 + (k - 0) * 3 from by omega]
+  exact plte_toBytes_go_r plte.entries 0 ByteArray.empty k (by omega) hk
+
+/-- Top-level: byte at position `k * 3 + 1` in `toBytes` is `entries[k].g`. -/
+theorem plte_toBytes_g (plte : PLTEInfo) (k : Nat) (hk : k < plte.entries.size) :
+    plte.toBytes[k * 3 + 1]! = plte.entries[k].g := by
+  simp only [PLTEInfo.toBytes]
+  rw [show k * 3 + 1 = 0 + (k - 0) * 3 + 1 from by omega]
+  exact plte_toBytes_go_g plte.entries 0 ByteArray.empty k (by omega) hk
+
+/-- Top-level: byte at position `k * 3 + 2` in `toBytes` is `entries[k].b`. -/
+theorem plte_toBytes_b (plte : PLTEInfo) (k : Nat) (hk : k < plte.entries.size) :
+    plte.toBytes[k * 3 + 2]! = plte.entries[k].b := by
+  simp only [PLTEInfo.toBytes]
+  rw [show k * 3 + 2 = 0 + (k - 0) * 3 + 2 from by omega]
+  exact plte_toBytes_go_b plte.entries 0 ByteArray.empty k (by omega) hk
+
+/-- Size of the result of `fromBytes.go`. -/
+private theorem plte_fromBytes_go_size (data : ByteArray) (n i : Nat) (acc : Array PaletteEntry)
+    (hi : i ≤ n) :
+    (PLTEInfo.fromBytes.go data n i acc).size = acc.size + (n - i) := by
+  unfold PLTEInfo.fromBytes.go
+  split
+  case isTrue h =>
+    rw [plte_fromBytes_go_size _ _ _ _ (by omega)]
+    simp only [Array.size_push]; omega
+  case isFalse h => omega
+termination_by n - i
+
+/-- Element access in the result of `fromBytes.go`: accumulated prefix is preserved. -/
+private theorem plte_fromBytes_go_prefix (data : ByteArray) (n i : Nat) (acc : Array PaletteEntry)
+    (_hi : i ≤ n) (j : Nat) (hj : j < acc.size) :
+    (PLTEInfo.fromBytes.go data n i acc)[j]! = acc[j]! := by
+  unfold PLTEInfo.fromBytes.go
+  split
+  case isTrue h =>
+    rw [plte_fromBytes_go_prefix _ _ _ _ (by omega) j (by simp only [Array.size_push]; omega)]
+    exact Array.push_getElem!_lt acc _ j hj
+  case isFalse => rfl
+termination_by n - i
+
+/-- `fromBytes.go` on `toBytes plte` recovers each original entry at position `k`. -/
+theorem plte_fromBytes_go_entry (plte : PLTEInfo) (i : Nat) (hi : i ≤ plte.entries.size)
+    (acc : Array PaletteEntry) (k : Nat) (hki : i ≤ k) (hk : k < plte.entries.size) :
+    (PLTEInfo.fromBytes.go plte.toBytes plte.entries.size i acc)[acc.size + (k - i)]! =
+      plte.entries[k] := by
+  unfold PLTEInfo.fromBytes.go
+  rw [if_pos (by omega : i < plte.entries.size)]
+  -- The byte reads recover the original entry
+  have hr : plte.toBytes.get! (i * 3) = plte.entries[i].r := by
+    rw [ByteArray.get!_eq_getElem!]; exact plte_toBytes_r plte i (by omega)
+  have hg : plte.toBytes.get! (i * 3 + 1) = plte.entries[i].g := by
+    rw [ByteArray.get!_eq_getElem!]; exact plte_toBytes_g plte i (by omega)
+  have hb : plte.toBytes.get! (i * 3 + 2) = plte.entries[i].b := by
+    rw [ByteArray.get!_eq_getElem!]; exact plte_toBytes_b plte i (by omega)
+  simp only [hr, hg, hb]
+  have hentry : ({ r := plte.entries[i].r, g := plte.entries[i].g, b := plte.entries[i].b } : PaletteEntry) = plte.entries[i] := by
+    obtain ⟨r, g, b⟩ := plte.entries[i]; rfl
+  rw [hentry]
+  by_cases hik : i = k
+  · subst hik
+    simp only [Nat.sub_self]
+    -- Need: (go ... (i+1) (acc.push entries[i]))[acc.size + 0]! = entries[i]
+    rw [show acc.size + 0 = acc.size from by omega]
+    rw [show acc.size = (acc.push plte.entries[i]).size - 1 from by simp only [Array.size_push]; omega]
+    rw [plte_fromBytes_go_prefix _ _ _ _ (by omega) _ (by simp only [Array.size_push]; omega)]
+    simp only [Array.size_push]
+    rw [show acc.size + 1 - 1 = acc.size from by omega]
+    rw [getElem!_pos _ _ (by simp only [Array.size_push]; omega)]
+    exact Array.getElem_push_eq
+  · rw [show acc.size + (k - i) = (acc.push plte.entries[i]).size + (k - (i + 1)) from by
+      simp only [Array.size_push]; omega]
+    exact plte_fromBytes_go_entry plte (i + 1) (by omega) _ k (by omega) hk
+termination_by plte.entries.size - i
+
+/-- `fromBytes.go` starting from 0 with empty accumulator produces the original entries. -/
+theorem plte_fromBytes_go_eq (plte : PLTEInfo) :
+    PLTEInfo.fromBytes.go plte.toBytes plte.entries.size 0 #[] = plte.entries := by
+  apply Array.ext
+  · rw [plte_fromBytes_go_size _ _ _ _ (by omega)]
+    simp only [Array.size_empty]; omega
+  · intro i hi1 hi2
+    have hi1' : i < plte.entries.size := hi2
+    have heq := plte_fromBytes_go_entry plte 0 (by omega) #[] i (by omega) hi1'
+    simp only [Array.size_empty, Nat.zero_add, Nat.sub_zero] at heq
+    rw [← getElem!_pos (PLTEInfo.fromBytes.go plte.toBytes plte.entries.size 0 #[]) i hi1, heq]
+
+/-- **PLTE roundtrip**: parsing serialized PLTE bytes recovers the original palette. -/
+theorem plte_fromBytes_toBytes (plte : PLTEInfo)
+    (hpos : plte.entries.size > 0) (hmax : plte.entries.size ≤ 256) :
+    PLTEInfo.fromBytes plte.toBytes = .ok plte := by
+  have hsize : plte.toBytes.size = plte.entries.size * 3 := plte_toBytes_size plte
+  have hnum : plte.toBytes.size / 3 = plte.entries.size := by
+    rw [hsize]; exact Nat.mul_div_cancel plte.entries.size (by omega)
+  unfold PLTEInfo.fromBytes
+  -- Prove the Bool guards evaluate to false
+  have hg1 : (plte.toBytes.size == 0) = false := by
+    cases h : plte.toBytes.size == 0
+    · rfl
+    · simp only [beq_iff_eq] at h; omega
+  have hg2 : (plte.toBytes.size % 3 != 0) = false := by
+    cases h : plte.toBytes.size % 3 != 0
+    · rfl
+    · simp only [bne_iff_ne, ne_eq] at h
+      rw [hsize, Nat.mul_comm] at h
+      exact absurd (Nat.mul_mod_right 3 plte.entries.size) h
+  -- Eliminate the first two guards (Bool = true → False)
+  simp only [hg1, hg2, Bool.false_eq_true, ↓reduceIte]
+  -- Eliminate the third guard (Prop: numEntries > 256)
+  simp only [hnum, show ¬ plte.entries.size > 256 from by omega, ↓reduceIte]
+  -- The go function produces the original entries
+  simp only [pure, Except.pure, bind, Except.bind]
+  rw [plte_fromBytes_go_eq plte]
+
 end Png.Spec
