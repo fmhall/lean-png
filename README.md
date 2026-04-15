@@ -6,8 +6,8 @@ machine-checked by Lean 4's kernel with zero `sorry`. If it
 type-checks, encoding followed by decoding recovers your original image.
 
 Built on [lean-zip](https://github.com/kim-em/lean-zip)'s verified
-DEFLATE/CRC32/Adler32. 20 source files, ~6,100 lines of Lean,
-193 proven theorems, 200 tests.
+DEFLATE/CRC32/Adler32. 20 source files, ~6,800 lines of Lean,
+214 proven theorems, **zero `sorry`**, 200 tests.
 
 ## Why verified PNG?
 
@@ -254,7 +254,7 @@ Png/
     ChunkCorrect.lean   — Chunk roundtrip proofs (43 theorems)
     IdatCorrect.lean    — IDAT roundtrip proofs (19 theorems)
     FilterCorrect.lean  — Filter roundtrip proofs, all 5 types (36 theorems)
-    InterlaceCorrect.lean — Interlace proofs (27 theorems, 1 sorry)
+    InterlaceCorrect.lean — Interlace proofs (41 theorems, 0 sorry)
     RoundtripCorrect.lean — Capstone composition (57 theorems, 0 sorry)
 PngTest/                — 200 conformance tests (native vs FFI + PngSuite)
 PngBench.lean           — Benchmark driver for hyperfine
@@ -280,26 +280,21 @@ exact zlib_decompressSingle_compress data level hsize
 
 ## Project status
 
-**20 source files. ~6,100 lines of Lean. 193 theorems. 1 `sorry`.
+**20 source files. ~6,800 lines of Lean. 214 theorems. Zero `sorry`.
 200 tests. Capstone proven.**
 
-### Fully proven (0 sorry)
+### All spec files fully proven (0 sorry)
 
 | File | Theorems | Key result |
 |------|----------|-----------|
 | `ChunkCorrect.lean` | 43 | `parseChunk_serialize`, `validChunkSequence_basic` |
 | `FilterCorrect.lean` | 36 | `unfilterRow_filterRow` (all 5 types) |
 | `IdatCorrect.lean` | 19 | `decompressIdat_compressIdat` |
+| `InterlaceCorrect.lean` | 41 | `adam7Scatter_extract`, `adam7_coverage`, `adam7_uniqueness` |
 | `RoundtripCorrect.lean` | 57 | **`decodePng_encodePng`** (capstone), `encodePng_valid_chunks` |
 
-### Remaining sorry (1, not on capstone path)
-
-| File | Sorry | Why it's hard |
-|------|-------|--------------|
-| `InterlaceCorrect.lean` | `adam7Scatter_extract` | Byte-level extract/scatter composition across 7 passes |
-
-This is not on the capstone's critical path. The roundtrip
-`decodePng(encodePng(image)) = image` is fully machine-checked.
+Every theorem in every spec file is fully machine-checked. Zero `sorry`
+across the entire codebase.
 
 ## Benchmarks
 
