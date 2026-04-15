@@ -73,7 +73,8 @@ private theorem validateSignature_prefix (rest : ByteArray) :
   simp only [validateSignature]
   have hsz : (pngSignature ++ rest).size ≥ 8 := by
     rw [ByteArray.size_append]; simp only [pngSignature, ByteArray.size, Array.size, List.length]; omega
-  simp only [hsz, decide_true, Bool.true_and]
+  rw [dif_pos hsz]
+  simp only [← getElem!_pos]
   simp only [pngSig_getElem!_append rest 0 (by omega), pngSig_getElem!_append rest 1 (by omega),
     pngSig_getElem!_append rest 2 (by omega), pngSig_getElem!_append rest 3 (by omega),
     pngSig_getElem!_append rest 4 (by omega), pngSig_getElem!_append rest 5 (by omega),
@@ -1080,9 +1081,8 @@ theorem decodePng_encodePng (image : PngImage) (strategy : FilterStrategy)
   simp only [decodePng, bind, Except.bind]
   rw [hparse]
   -- chunks.size > 0 → not empty
-  have hne : ¬(result.size == 0 : Bool) = true := by
-    simp only [beq_iff_eq]; omega
-  simp only [hne, ↓reduceIte]
+  simp only [dif_neg (show ¬ result.size = 0 from by omega)]
+  simp only [← getElem!_pos]
   -- First chunk is IHDR
   have hisIHDR : result[0]!.isIHDR = true := by rw [hfirst]; rfl
   simp only [hisIHDR, Bool.not_true, ↓reduceIte]
@@ -1251,8 +1251,8 @@ theorem encodePng_valid_chunks (image : PngImage) (strategy : FilterStrategy) :
   have hresult_sz : result.size = 1 + idats.size + 1 := by
     rw [hsz_eq]; simp only [Array.size, List.length]; omega
   -- size != 0
-  have hne : (result.size == 0) = false := by rw [hresult_sz]; rfl
-  rw [hne]; simp only [Bool.false_eq_true, ↓reduceIte]
+  rw [dif_neg (by omega : ¬ result.size = 0)]
+  simp only [← getElem!_pos]
   -- IHDR first
   have hfirst_ihdr : result[0]!.isIHDR = true := by
     rw [hprefix 0 (by simp only [Array.size, List.length]; omega)]

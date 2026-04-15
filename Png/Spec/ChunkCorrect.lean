@@ -199,11 +199,13 @@ theorem ihdr_fromBytes_toBytes (ihdr : IHDRInfo)
     (hc : ihdr.compressionMethod = 0) (hf : ihdr.filterMethod = 0) :
     IHDRInfo.fromBytes ihdr.toBytes = .ok ihdr := by
   unfold IHDRInfo.fromBytes
-  -- Size check: toBytes.size = 13, so (13 != 13) = false
-  simp only [show ihdr.toBytes.size = 13 from by
+  -- Size check: toBytes.size = 13, so dite resolves via dif_pos
+  have htsz : ihdr.toBytes.size = 13 := by
     simp only [IHDRInfo.toBytes, writeUInt32BE]; simp only [ByteArray.size_append];
-    simp only [ByteArray.size, Array.size, List.length],
-    bne_self_eq_false, Bool.false_eq_true, ↓reduceIte]
+    simp only [ByteArray.size, Array.size, List.length]
+  rw [dif_pos htsz]
+  -- Normalize getElem (proven bounds) back to getElem! for compatibility with sub-lemmas
+  simp only [← getElem!_pos]
   -- Width check: readUInt32BE toBytes 0 = width ≠ 0
   simp only [ihdr_read_width, beq_iff_eq, hw, ↓reduceIte]
   -- Height check
@@ -437,12 +439,12 @@ theorem validChunkSequence_basic
       (1 + middle.size + idats.size + 1) false true := by
     rw [hphase3]; rfl
   unfold validChunkSequence
-  have hszne : ((#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk).size == 0) = false := by
-    simp only [Array.size_append, hsz1, hsze]; rfl
-  rw [hszne]
-  dsimp only []
+  have hszne : (#[ihdr] ++ middle ++ idats ++ #[iend] : Array PngChunk).size ≠ 0 := by
+    simp only [Array.size_append, hsz1, hsze]; omega
+  rw [dif_neg hszne]
+  -- Normalize getElem (proven bounds) back to getElem! for compatibility with hfirst/hlast
+  simp only [← getElem!_pos]
   rw [hfirst, hlast, Bool.true_and, Bool.true_and, hphase1, hphase2, hphase3', hphase4]
-  decide
 
 /-- An empty chunk sequence is invalid. -/
 theorem validChunkSequence_empty : validChunkSequence #[] = false := by
