@@ -16,6 +16,7 @@ import Png.Native.Decode
 import Png.Native.Interlace
 
 -- Specifications and proofs
+import Png.Spec.BoundsCorrect
 import Png.Spec.ChunkCorrect
 import Png.Spec.FilterCorrect
 import Png.Spec.IdatCorrect
