@@ -403,7 +403,7 @@ lake exe test       # run all tests
 In your `lakefile.lean`:
 
 ```lean
-require leanPng from git "https://github.com/kim-em/lean-png"
+require leanPng from git "https://github.com/fmhall/lean-png"
 ```
 
 ### Encode/Decode (native, verified)
