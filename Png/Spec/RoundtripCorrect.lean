@@ -68,7 +68,7 @@ private theorem pngSig_getElem!_append (rest : ByteArray) (i : Nat) (hi : i < 8)
   exact ByteArray.getElem_append_left (by simp only [pngSignature, ByteArray.size, Array.size, List.length]; omega)
 
 /-- validateSignature succeeds on data starting with pngSignature. -/
-private theorem validateSignature_prefix (rest : ByteArray) :
+theorem validateSignature_prefix (rest : ByteArray) :
     validateSignature (pngSignature ++ rest) = true := by
   simp only [validateSignature]
   have hsz : (pngSignature ++ rest).size ≥ 8 := by
@@ -86,7 +86,7 @@ set_option maxHeartbeats 3200000 in
     If `data = pfx ++ c.serialize ++ sfx`, then
     `parseChunk data pfx.size = .ok ⟨c, pfx.size + c.serialize.size⟩`.
     Requires: chunk data fits in PNG length field (< 2^31). -/
-private theorem parseChunk_at_offset (pfx sfx : ByteArray) (c : PngChunk)
+theorem parseChunk_at_offset (pfx sfx : ByteArray) (c : PngChunk)
     (hlen : c.data.size < 2 ^ 31) :
     parseChunk (pfx ++ c.serialize ++ sfx) pfx.size
       = .ok ⟨c, pfx.size + c.serialize.size⟩ := by
@@ -139,7 +139,7 @@ private theorem mkIHDRChunk_data_size (w h : UInt32) :
   simp only [mkIHDRChunk, Png.Spec.ihdr_toBytes_size]
 
 /-- The IEND chunk has empty data. -/
-private theorem mkIENDChunk_data_size : mkIENDChunk.data.size = 0 := by
+theorem mkIENDChunk_data_size : mkIENDChunk.data.size = 0 := by
   rfl
 
 /-- mkIHDRChunk produces a chunk with IHDR type. -/
@@ -148,7 +148,7 @@ private theorem mkIHDRChunk_isIHDR (w h : UInt32) :
   rfl
 
 /-- mkIENDChunk produces a chunk with IEND type. -/
-private theorem mkIENDChunk_isIEND : mkIENDChunk.isIEND = true := by
+theorem mkIENDChunk_isIEND : mkIENDChunk.isIEND = true := by
   rfl
 
 /-- mkIHDRChunk is not IEND. -/
@@ -157,7 +157,7 @@ private theorem mkIHDRChunk_not_isIEND (w h : UInt32) :
   simp only [mkIHDRChunk, PngChunk.isIEND, ChunkType.IHDR, ChunkType.IEND]; decide
 
 /-- mkIENDChunk has data size < 2^31. -/
-private theorem mkIENDChunk_data_small : mkIENDChunk.data.size < 2 ^ 31 := by
+theorem mkIENDChunk_data_small : mkIENDChunk.data.size < 2 ^ 31 := by
   decide
 
 /-- mkIHDRChunk has data size < 2^31. -/
@@ -177,7 +177,7 @@ private theorem parseChunks_encodePng_unfold (image : PngImage) (strategy : Filt
   rw [hvalid]; rfl
 
 /-- parseChunks.go step: parsing a non-IEND chunk advances to the next offset. -/
-private theorem parseChunks_go_step (data : ByteArray) (off : Nat) (acc : Array PngChunk)
+theorem parseChunks_go_step (data : ByteArray) (off : Nat) (acc : Array PngChunk)
     (c : PngChunk) (off' : Nat)
     (hparse : parseChunk data off = .ok ⟨c, off'⟩)
     (hnotIEND : c.isIEND = false)
@@ -244,7 +244,7 @@ set_option maxHeartbeats 6400000 in
     starting at pfx.size terminates successfully with the last chunk being iend.
     Also preserves all acc elements at their original positions.
     Additionally returns the exact size and element-wise correspondence for middle elements. -/
-private theorem parseChunks_go_serialized
+theorem parseChunks_go_serialized
     (pfx : ByteArray) (chunks : Array PngChunk) (j : Nat)
     (iendChunk : PngChunk) (sfx : ByteArray) (acc : Array PngChunk)
     (hIEND : iendChunk.isIEND = true)
@@ -356,7 +356,7 @@ termination_by chunks.size - j
 -- encodePng_valid_chunks is defined after parseChunks_encodePng_result (see end of file)
 
 /-- IDAT chunks from compressAndSplit are not IEND. -/
-private theorem compressAndSplit_not_iend (data : ByteArray) :
+theorem compressAndSplit_not_iend (data : ByteArray) :
     ∀ k, (hk : k < (Idat.compressAndSplit data).size) →
       ((Idat.compressAndSplit data)[k]'hk).isIEND = false := by
   intro k hk
@@ -411,7 +411,7 @@ private theorem splitIntoIdatChunks_data_small (zlibData : ByteArray)
 
 /-- IDAT chunks from compressAndSplit have data.size < 2^31.
     Each chunk has at most defaultChunkSize = 65536 bytes. -/
-private theorem compressAndSplit_data_small (data : ByteArray) :
+theorem compressAndSplit_data_small (data : ByteArray) :
     ∀ k, (hk : k < (Idat.compressAndSplit data).size) →
       ((Idat.compressAndSplit data)[k]'hk).data.size < 2 ^ 31 := by
   simp only [Idat.compressAndSplit, Idat.defaultChunkSize]
@@ -940,7 +940,7 @@ termination_by chunks.size - i
 /-- Key helper: extractIdatData on an array with sandwich structure
     (non-IDAT prefix, matching middle elements, non-IDAT suffix)
     equals extractIdatData on just the middle chunks. -/
-private theorem extractIdatData_sandwich
+theorem extractIdatData_sandwich
     (result chunks : Array PngChunk)
     (hsz : result.size = 1 + chunks.size + 1)
     (hfirst_not_idat : (result[0]'(by omega)).isIDAT = false)

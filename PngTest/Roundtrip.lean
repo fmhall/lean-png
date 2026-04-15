@@ -149,6 +149,84 @@ def testLarger16x16 : IO Unit := do
     check (decoded == image) "16x16 roundtrip failed"
   | .error e => throw (.userError s!"16x16 decode failed: {e}")
 
+/-! ## Interlaced roundtrip tests -/
+
+/-- 1x1 red pixel, interlaced, filter None. -/
+def testInterlaced1x1Red : IO Unit := do
+  let image : PngImage := {
+    width := 1, height := 1
+    pixels := ByteArray.mk #[255, 0, 0, 255]
+  }
+  let encoded := encodePngInterlaced image .none
+  check (encoded.size > 0) "interlaced encoded data is empty"
+  match decodePng encoded with
+  | .ok decoded =>
+    check (decoded == image)
+      s!"interlaced 1x1 roundtrip failed: decoded pixels size={decoded.pixels.size}"
+  | .error e => throw (.userError s!"interlaced 1x1 decode failed: {e}")
+
+/-- 4x4 gradient, interlaced, filter None. -/
+def testInterlaced4x4 : IO Unit := do
+  let mut pixels := ByteArray.empty
+  for r in [:4] do
+    for c in [:4] do
+      let v := ((r * 4 + c) * 16).toUInt8
+      pixels := pixels ++ ByteArray.mk #[v, v, v, 255]
+  let image : PngImage := { width := 4, height := 4, pixels }
+  let encoded := encodePngInterlaced image .none
+  match decodePng encoded with
+  | .ok decoded =>
+    check (decoded == image) "interlaced 4x4 roundtrip failed"
+  | .error e => throw (.userError s!"interlaced 4x4 decode failed: {e}")
+
+/-- 8x8 varied image, interlaced, filter None. -/
+def testInterlaced8x8 : IO Unit := do
+  let mut pixels := ByteArray.empty
+  for r in [:8] do
+    for c in [:8] do
+      pixels := pixels ++ ByteArray.mk #[
+        ((r * 32) % 256).toUInt8,
+        ((c * 32) % 256).toUInt8,
+        (((r + c) * 16) % 256).toUInt8,
+        255]
+  let image : PngImage := { width := 8, height := 8, pixels }
+  let encoded := encodePngInterlaced image .none
+  match decodePng encoded with
+  | .ok decoded =>
+    check (decoded == image) "interlaced 8x8 roundtrip failed"
+  | .error e => throw (.userError s!"interlaced 8x8 decode failed: {e}")
+
+/-- 16x16 image, interlaced, filter Sub. -/
+def testInterlaced16x16Sub : IO Unit := do
+  let mut pixels := ByteArray.empty
+  for r in [:16] do
+    for c in [:16] do
+      pixels := pixels ++ ByteArray.mk #[
+        ((r * 17) % 256).toUInt8,
+        ((c * 17) % 256).toUInt8,
+        (((r + c) * 8) % 256).toUInt8,
+        255]
+  let image : PngImage := { width := 16, height := 16, pixels }
+  let encoded := encodePngInterlaced image .sub
+  match decodePng encoded with
+  | .ok decoded =>
+    check (decoded == image) "interlaced 16x16 Sub roundtrip failed"
+  | .error e => throw (.userError s!"interlaced 16x16 Sub decode failed: {e}")
+
+/-- 5x3 non-square image, interlaced, filter None. -/
+def testInterlaced5x3 : IO Unit := do
+  let mut pixels := ByteArray.empty
+  for r in [:3] do
+    for c in [:5] do
+      let v := ((r * 5 + c) * 17).toUInt8
+      pixels := pixels ++ ByteArray.mk #[v, 0, 0, 255]
+  let image : PngImage := { width := 5, height := 3, pixels }
+  let encoded := encodePngInterlaced image .none
+  match decodePng encoded with
+  | .ok decoded =>
+    check (decoded == image) "interlaced 5x3 roundtrip failed"
+  | .error e => throw (.userError s!"interlaced 5x3 decode failed: {e}")
+
 /-! ## Error case tests -/
 
 /-- Reject data that is not a PNG (bad signature). -/
@@ -183,6 +261,11 @@ def runAll : IO Unit := do
     ("filter Average",      testFilterAverage),
     ("filter Paeth",        testFilterPaeth),
     ("16x16 larger",        testLarger16x16),
+    ("interlaced 1x1",      testInterlaced1x1Red),
+    ("interlaced 4x4",      testInterlaced4x4),
+    ("interlaced 8x8",      testInterlaced8x8),
+    ("interlaced 16x16 Sub", testInterlaced16x16Sub),
+    ("interlaced 5x3",      testInterlaced5x3),
     ("bad signature",       testBadSignature),
     ("empty data",          testEmptyData),
     ("truncated PNG",       testTruncatedPng)
