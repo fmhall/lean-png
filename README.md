@@ -1,13 +1,15 @@
 # lean-png
 
-A formally verified PNG encoder/decoder in Lean 4. The capstone
-theorem -- `decodePng(encodePng(image)) = image` -- is
-machine-checked by Lean 4's kernel with zero `sorry`. If it
+A formally verified PNG encoder/decoder in Lean 4. Two capstone
+theorems -- `decodePng(encodePng(image)) = image` for non-interlaced
+and `decodePng(encodePngInterlaced(image)) = image` for Adam7 --
+are machine-checked by Lean 4's kernel with zero `sorry`. If it
 type-checks, encoding followed by decoding recovers your original image.
 
 Built on [lean-zip](https://github.com/kim-em/lean-zip)'s verified
-DEFLATE/CRC32/Adler32. 23 source files, ~7,600 lines of Lean,
-253 proven theorems, **zero `sorry`**, 180 tests.
+DEFLATE/CRC32/Adler32. 27 source files, ~9,600 lines of Lean,
+301 proven theorems, **zero `sorry`**, 180 tests. All 162 non-interlaced
+PngSuite images decode natively and match libpng pixel-for-pixel.
 
 ## Why verified PNG?
 
@@ -194,15 +196,14 @@ theorem adam7_total_pixels (width height : Nat) :
     totalPassPixels width height = width * height
 ```
 
-### Capstone: encode/decode roundtrip (PROVEN)
+### Capstones: encode/decode roundtrip (PROVEN)
 
-The main result: if you encode an image as PNG and decode it back,
-you get exactly the original image. This chains all the building
-blocks above into one end-to-end guarantee, machine-checked with
-zero `sorry`:
+The main results: encoding an image as PNG and decoding it back
+gives exactly the original image — for both non-interlaced and
+Adam7-interlaced encoding. Machine-checked with zero `sorry`:
 
 ```lean
--- Png/Spec/RoundtripCorrect.lean
+-- Png/Spec/RoundtripCorrect.lean (non-interlaced)
 
 theorem decodePng_encodePng (image : PngImage) (strategy : FilterStrategy)
     (hvalid : image.isValid = true)
@@ -210,9 +211,18 @@ theorem decodePng_encodePng (image : PngImage) (strategy : FilterStrategy)
               < 1024 * 1024 * 1024)
     (hw : image.width ≠ 0) (hh : image.height ≠ 0) :
     decodePng (encodePng image strategy) = .ok image
+
+-- Png/Spec/InterlacedRoundtripCorrect.lean (Adam7 interlaced)
+
+theorem decodePng_encodePngInterlaced (image : PngImage) (strategy : FilterStrategy)
+    (hvalid : image.isValid = true)
+    (hsize : (filterAllPasses (adam7Extract image) strategy).size
+              < 1024 * 1024 * 1024)
+    (hw : image.width ≠ 0) (hh : image.height ≠ 0) :
+    decodePng (encodePngInterlaced image strategy) = .ok image
 ```
 
-The proof composes all building blocks in a 70-line chain:
+The non-interlaced proof composes all building blocks in a 70-line chain:
 1. Chunk parsing recovers IHDR + IDAT chunks (`parseChunk_at_offset`)
 2. IDAT extraction + decompression recovers filtered data (`extractAndDecompress_compressAndSplit`)
 3. Unfiltering recovers original pixels (`unfilterScanlines_filterScanlines`)
@@ -233,11 +243,14 @@ The roundtrip decomposes into independently-proven building blocks:
 
 | Block | What it proves | Status |
 |-------|---------------|--------|
-| BB1: Chunk framing | `parseChunk(serialize(c)) = c` | **Proven** |
+| BB1: Chunk framing | `parseChunk(serialize(c)) = c`, PLTE roundtrip | **Proven** |
 | BB2: IDAT pipeline | `decompress(compress(data)) = data` | **Proven** |
 | BB3: Scanline filters | `unfilter(filter(row)) = row` (all 5 types) | **Proven** |
-| BB4: Composition | `decode(encode(image)) = image` | **Proven** |
-| BB5: Interlacing | Coverage, uniqueness, coordinate roundtrips | 14/15 proven |
+| BB4: Composition | `decode(encode(image)) = image` (non-interlaced) | **Proven** |
+| BB5: Interlacing | Coverage, uniqueness, scatter/extract roundtrip | **Proven** |
+| BB6: Interlaced roundtrip | `decode(encodeInterlaced(image)) = image` | **Proven** |
+| BB7: Color convert | Palette expansion bounds (CVE elimination) | **Proven** |
+| BB8: Completeness | `validPng data → ∃ img, decode data = .ok img` | **Proven** |
 
 ### Source layout
 
@@ -253,15 +266,18 @@ Png/
     Idat.lean           — IDAT compress/decompress pipeline
     Filter.lean         — All 5 filter types (filter + unfilter)
     Interlace.lean      — Adam7 extract/scatter
-    Encode.lean         — PNG encoder (filter → compress → chunk → serialize)
-    Decode.lean         — PNG decoder (parse → decompress → unfilter)
+    Encode.lean         — PNG encoder (non-interlaced + Adam7 interlaced)
+    Decode.lean         — PNG decoder (all color types + Adam7)
   Spec/
     BoundsCorrect.lean  — Index bound proofs (7 theorems)
     ChunkCorrect.lean   — Chunk + PLTE roundtrip proofs (57 theorems)
+    ColorConvertCorrect.lean — Palette expansion bounds proof (10 theorems)
     IdatCorrect.lean    — IDAT roundtrip proofs (19 theorems)
     FilterCorrect.lean  — Filter roundtrip proofs, all 5 types (36 theorems)
-    InterlaceCorrect.lean — Interlace proofs (41 theorems, 0 sorry)
-    RoundtripCorrect.lean — Capstone composition (57 theorems, 0 sorry)
+    InterlaceCorrect.lean — Interlace proofs (61 theorems)
+    InterlacedRoundtripCorrect.lean — Interlaced capstone (33 theorems)
+    PngValid.lean       — validPng predicate + completeness (5 theorems)
+    RoundtripCorrect.lean — Non-interlaced capstone (53 theorems)
 PngTest/                — 180 tests (native vs FFI + PngSuite + unit tests)
 PngBench.lean           — Benchmark driver for hyperfine
 c/png_ffi.c             — libpng FFI wrapper (~500 lines of C)
@@ -286,8 +302,8 @@ exact zlib_decompressSingle_compress data level hsize
 
 ## Project status
 
-**23 source files. ~7,600 lines of Lean. 253 theorems. Zero `sorry`.
-180 tests. Capstone proven.**
+**27 source files. ~9,600 lines of Lean. 301 theorems. Zero `sorry`.
+180 tests. Both capstones proven (non-interlaced + Adam7).**
 
 ### All spec files fully proven (0 sorry)
 
@@ -295,10 +311,13 @@ exact zlib_decompressSingle_compress data level hsize
 |------|----------|-----------|
 | `BoundsCorrect.lean` | 7 | `parseChunk_offset_bounded`, `scanlineBytes_bounded` |
 | `ChunkCorrect.lean` | 57 | `parseChunk_serialize`, `plte_fromBytes_toBytes` |
+| `ColorConvertCorrect.lean` | 10 | `expandPalette_bounded` (CVE-class elimination) |
 | `FilterCorrect.lean` | 36 | `unfilterRow_filterRow` (all 5 types) |
 | `IdatCorrect.lean` | 19 | `decompressIdat_compressIdat` |
-| `InterlaceCorrect.lean` | 41 | `adam7Scatter_extract`, `adam7_coverage`, `adam7_uniqueness` |
-| `RoundtripCorrect.lean` | 57 | **`decodePng_encodePng`** (capstone), `encodePng_valid_chunks` |
+| `InterlaceCorrect.lean` | 61 | `adam7Scatter_extract`, `adam7_coverage`, `adam7_uniqueness` |
+| `InterlacedRoundtripCorrect.lean` | 33 | **`decodePng_encodePngInterlaced`** (interlaced capstone) |
+| `PngValid.lean` | 5 | `decodePng_complete`, `encodePng_validPng` |
+| `RoundtripCorrect.lean` | 53 | **`decodePng_encodePng`** (non-interlaced capstone) |
 
 Every theorem in every spec file is fully machine-checked. Zero `sorry`
 across the entire codebase.
