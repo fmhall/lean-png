@@ -5,6 +5,7 @@ import PngTest.Idat
 import PngTest.Roundtrip
 import PngTest.Interlace
 import PngTest.ColorConvert
+import PngTest.NativeDecode
 
 /-!
 # PNG Test Suite
@@ -51,6 +52,13 @@ def main : IO UInt32 := do
     PngTest.ColorConvert.runAll
   catch e =>
     IO.eprintln s!"ColorConvert tests failed: {e}"
+    failures := failures + 1
+  IO.println ""
+  IO.println "=== Native Decode (all color types) ==="
+  try
+    PngTest.NativeDecode.runAll
+  catch e =>
+    IO.eprintln s!"NativeDecode tests failed: {e}"
     failures := failures + 1
   IO.println ""
   if !(← PngTest.Conformance.runAll) then failures := failures + 1
