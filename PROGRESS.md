@@ -5,7 +5,7 @@ Per-session details are in `progress/`.
 
 ## Current State
 
-- **Phase**: Phase 4 complete, phase 5 next
+- **Phase**: Phases 1-6 complete, phase 7 next
 - **Toolchain**: leanprover/lean4:v4.29.0-rc4
 - **Sorries**: 0
 - **Theorems**: 333 (all proven)
@@ -13,6 +13,7 @@ Per-session details are in `progress/`.
 - **Lines of Lean**: ~10,200
 - **Tests**: 180 passing (162 valid PngSuite + 14 corrupt rejected)
 - **Merged PRs**: 34
+- **Open issues**: 3 (#15 fuzzing, #17 SECURITY.md, #18 CVE proofs)
 
 ## Phase 1 — Complete
 
@@ -40,8 +41,17 @@ Per-session details are in `progress/`.
 - Decompression bomb mitigation: 17 theorems, IDAT size validation chain (PR #34)
 - Corrupt PngSuite rejection: all 14 x* files correctly rejected (PR #34)
 
+## Phase 5 — Closed (CI/CD skipped, fuzzing open)
+
+- #14 CI/CD: closed (not needed now)
+- #15 Fuzzing harness: open
+
+## Phase 6 — Closed
+
+- #16 Nightly automation: closed (not needed now)
+
 ## Remaining
 
-- Phase 5: CI/CD with sorry-count enforcement, fuzzing harness (#14, #15)
-- Phase 6: Nightly agent automation (#16)
-- Phase 7: SECURITY.md with CVE-class elimination mapping (#17, #18)
+- #15: Build fuzzing harness (native vs FFI comparison)
+- #17: Create SECURITY.md with CVE-class elimination mapping
+- #18: Prove CVE-class elimination theorems
