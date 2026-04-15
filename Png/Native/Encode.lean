@@ -1,16 +1,21 @@
 import Png.Native.Chunk
 import Png.Native.Filter
 import Png.Native.Idat
+import Png.Native.Interlace
 
 /-!
 # PNG Encoder
 
-Pure Lean PNG encoder for non-interlaced RGBA 8-bit images.
+Pure Lean PNG encoder for non-interlaced and Adam7-interlaced RGBA 8-bit images.
 
 Chains: image pixels → filter scanlines → compress IDAT → chunk framing → PNG bytes.
 
 The filter type byte is prepended to each scanline before compression,
 per PNG specification §9.
+
+For interlaced images, the 7 Adam7 sub-images are extracted, each is
+filtered independently, and the filtered data is concatenated before
+compression.
 -/
 
 namespace Png.Native.Encode
@@ -104,5 +109,56 @@ def encodePng (image : PngImage) (strategy : FilterStrategy := .none) : ByteArra
   let iendChunk := mkIENDChunk
   -- 5. Assemble: PNG signature + serialized chunks
   pngSignature ++ ihdrChunk.serialize ++ serializeChunks idatChunks ++ iendChunk.serialize
+
+open Png.Native.Interlace
+
+/-- Build an IHDR chunk for an RGBA 8-bit Adam7-interlaced image. -/
+def mkIHDRChunkInterlaced (width height : UInt32) : PngChunk :=
+  let ihdr : IHDRInfo := {
+    width, height
+    bitDepth := 8
+    colorType := .rgba
+    compressionMethod := 0
+    filterMethod := 0
+    interlaceMethod := .adam7
+  }
+  { chunkType := ChunkType.IHDR, data := ihdr.toBytes }
+
+/-- Filter scanlines for a single sub-image (pass) and append the result.
+    Uses `filterScanlines` with the sub-image's own width/height.
+    Empty passes (width=0 or height=0) contribute nothing. -/
+def filterPass (subImage : PngImage) (strategy : FilterStrategy) : ByteArray :=
+  if subImage.width == 0 || subImage.height == 0 then ByteArray.empty
+  else filterScanlines subImage.pixels subImage.width subImage.height strategy
+
+/-- Filter all 7 Adam7 passes and concatenate the results.
+    Uses well-founded recursion. -/
+def filterAllPasses (subImages : Array PngImage) (strategy : FilterStrategy) : ByteArray :=
+  go subImages strategy 0 ByteArray.empty
+where
+  go (subImages : Array PngImage) (strategy : FilterStrategy)
+      (p : Nat) (acc : ByteArray) : ByteArray :=
+    if h : p < 7 then
+      let passData :=
+        if hp : p < subImages.size then
+          filterPass subImages[p] strategy
+        else ByteArray.empty
+      go subImages strategy (p + 1) (acc ++ passData)
+    else acc
+  termination_by 7 - p
+
+/-- Encode a PngImage to PNG file bytes with Adam7 interlacing.
+    Assumes RGBA 8-bit. -/
+def encodePngInterlaced (image : PngImage) (strategy : FilterStrategy := .none) : ByteArray :=
+  -- 1. Build IHDR with interlaceMethod = .adam7
+  let ihdrChunk := mkIHDRChunkInterlaced image.width image.height
+  -- 2. Extract 7 sub-images
+  let subImages := adam7Extract image
+  -- 3. For each sub-image: filter scanlines, concatenate all filtered data
+  let filteredData := filterAllPasses subImages strategy
+  -- 4. Compress and split into IDAT chunks
+  let idatChunks := compressAndSplit filteredData
+  -- 5. IEND + assemble
+  pngSignature ++ ihdrChunk.serialize ++ serializeChunks idatChunks ++ mkIENDChunk.serialize
 
 end Png.Native.Encode

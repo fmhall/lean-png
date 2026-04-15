@@ -198,19 +198,19 @@ def convertToRGBA (rawPixels : ByteArray) (colorType : ColorType) (bitDepth : UI
 
 /-- Compute the scanline byte count for a sub-image pass.
     `passScanlineBytes = (passWidth * channels * bitDepth + 7) / 8` -/
-private def passScanlineBytes (pw : Nat) (colorType : ColorType) (bitDepth : UInt8) : Nat :=
+def passScanlineBytes (pw : Nat) (colorType : ColorType) (bitDepth : UInt8) : Nat :=
   (pw * IHDRInfo.channels colorType * bitDepth.toNat + 7) / 8
 
 /-- Compute the total decompressed size for a single Adam7 pass.
     Empty passes (width=0 or height=0) contribute 0 bytes.
     Non-empty passes contribute `passHeight * (1 + passScanlineBytes)`. -/
-private def passDecompressedSize (pw ph : Nat) (colorType : ColorType) (bitDepth : UInt8) : Nat :=
+def passDecompressedSize (pw ph : Nat) (colorType : ColorType) (bitDepth : UInt8) : Nat :=
   if pw == 0 || ph == 0 then 0
   else ph * (1 + passScanlineBytes pw colorType bitDepth)
 
 /-- Decode a single Adam7 pass sub-image from its portion of the decompressed stream.
     Returns RGBA pixel data for this pass. Skips empty passes. -/
-private def decodePass (passData : ByteArray) (pw ph : Nat)
+def decodePass (passData : ByteArray) (pw ph : Nat)
     (colorType : ColorType) (bitDepth : UInt8) (bpp : Nat)
     (plte : Option PLTEInfo) (trns : Option TRNSInfo) : Except String PngImage := do
   if pw == 0 || ph == 0 then
@@ -224,7 +224,7 @@ private def decodePass (passData : ByteArray) (pw ph : Nat)
 /-- Decode all 7 Adam7 passes from the decompressed IDAT stream.
     Splits the stream into per-pass regions, decodes each, and scatters
     the sub-images into the full-size output. -/
-private def decodeInterlaced (ihdr : IHDRInfo) (decompressed : ByteArray)
+def decodeInterlaced (ihdr : IHDRInfo) (decompressed : ByteArray)
     (plte : Option PLTEInfo) (trns : Option TRNSInfo) : Except String PngImage :=
   let bpp := ihdr.bytesPerPixel
   let w := ihdr.width.toNat

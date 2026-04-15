@@ -458,7 +458,7 @@ private theorem isValid_pixels_size (img : PngImage) (h : img.isValid = true) :
   simp only [PngImage.isValid, PngImage.expectedSize, beq_iff_eq] at h; exact h
 
 -- extractPass produces correctly sized sub-images
-private theorem extractPass_pixels_size (image : PngImage) (p : Fin 7) :
+theorem extractPass_pixels_size (image : PngImage) (p : Fin 7) :
     (extractPass image p).pixels.size =
     passWidth p image.width.toNat * passHeight p image.height.toNat * 4 := by
   simp only [extractPass]
@@ -468,18 +468,18 @@ private theorem extractPass_pixels_size (image : PngImage) (p : Fin 7) :
   omega
 
 -- Nat.toUInt32.toNat roundtrip when value fits in UInt32
-private theorem toUInt32_toNat (n : Nat) (h : n < 2 ^ 32) : n.toUInt32.toNat = n := by
+theorem toUInt32_toNat (n : Nat) (h : n < 2 ^ 32) : n.toUInt32.toNat = n := by
   simp only [Nat.toUInt32, UInt32.toNat, UInt32.ofNat, BitVec.ofNat, BitVec.toNat]
   exact Nat.mod_eq_of_lt h
 
 -- extractPass produces correct width/height fields
-private theorem extractPass_width (image : PngImage) (p : Fin 7) :
+theorem extractPass_width (image : PngImage) (p : Fin 7) :
     (extractPass image p).width.toNat = passWidth p image.width.toNat := by
   show (passWidth p image.width.toNat).toUInt32.toNat = passWidth p image.width.toNat
   have hw : image.width.toNat < 2 ^ 32 := image.width.toBitVec.isLt
   exact toUInt32_toNat _ (by have := passWidth_le p image.width.toNat; omega)
 
-private theorem extractPass_height (image : PngImage) (p : Fin 7) :
+theorem extractPass_height (image : PngImage) (p : Fin 7) :
     (extractPass image p).height.toNat = passHeight p image.height.toNat := by
   show (passHeight p image.height.toNat).toUInt32.toNat = passHeight p image.height.toNat
   have hh : image.height.toNat < 2 ^ 32 := image.height.toBitVec.isLt
@@ -508,7 +508,7 @@ private theorem adam7Extract_getElem (image : PngImage) (p : Fin 7)
   | ⟨6, _⟩ => rfl
 
 /-- `UInt32.toNat` composed with `Nat.toUInt32` is the identity. -/
-private theorem UInt32_toNat_toUInt32 (u : UInt32) : u.toNat.toUInt32 = u := by
+theorem UInt32_toNat_toUInt32 (u : UInt32) : u.toNat.toUInt32 = u := by
   simp only [UInt32.toNat, Nat.toUInt32, UInt32.ofNat]
   congr 1; exact BitVec.eq_of_toNat_eq (Nat.mod_eq_of_lt u.toBitVec.isLt)
 
