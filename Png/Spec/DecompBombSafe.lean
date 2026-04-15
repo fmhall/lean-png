@@ -157,14 +157,15 @@ theorem unfilterRow_size (ft : FilterType) (bpp : Nat) (row prior : ByteArray) :
 
 private theorem unfilterScanlines_go_size (decompressed : ByteArray) (width height : UInt32)
     (bpp scanlineBytes : Nat) (r : Nat) (result priorRow : ByteArray)
-    (hdsz : decompressed.size = height.toNat * (1 + scanlineBytes)) :
+    (hdsz : decompressed.size = height.toNat * (1 + scanlineBytes))
+    (hrs : (1 + scanlineBytes) ≥ 1) :
     (unfilterScanlines.go decompressed width height bpp scanlineBytes (1 + scanlineBytes) r
-      result priorRow).size = result.size + (height.toNat - r) * scanlineBytes := by
+      result priorRow hdsz hrs).size = result.size + (height.toNat - r) * scanlineBytes := by
   unfold unfilterScanlines.go
   split
   case isTrue hlt =>
     simp only []
-    rw [unfilterScanlines_go_size _ _ _ _ _ _ _ _ hdsz]
+    rw [unfilterScanlines_go_size _ _ _ _ _ _ _ _ hdsz hrs]
     simp only [ByteArray.size_append]
     rw [unfilterRow_size]
     -- The extract size is min (r * (1+sl) + 1 + sl) decompressed.size - (r * (1+sl) + 1)
@@ -199,18 +200,15 @@ theorem unfilterScanlines_ok_size
   unfold unfilterScanlines at h
   simp only [] at h
   split at h
-  · contradiction
-  · rename_i hne
+  · rename_i hdsz
     simp only [Except.ok.injEq] at h
     rw [← h]
-    have hdsz : decompressed.size = height.toNat * (1 + scanlineBytes) := by
-      simp only [bne_iff_ne, ne_eq, Decidable.not_not] at hne
-      exact hne
     have := unfilterScanlines_go_size decompressed width height bpp scanlineBytes
       0 ByteArray.empty
-      (ByteArray.mk (Array.replicate scanlineBytes 0)) hdsz
+      (ByteArray.mk (Array.replicate scanlineBytes 0)) hdsz (by omega)
     simp only [ByteArray.size_empty, Nat.zero_add, Nat.sub_zero] at this
     exact this
+  · contradiction
 
 /-! ## adam7Scatter pixel buffer size -/
 

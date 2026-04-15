@@ -67,23 +67,24 @@ theorem expandPalette_go_r (data : ByteArray) (entries : Array PaletteEntry)
     by_cases hik : i = k
     · subst hik
       simp only [Nat.sub_self, Nat.zero_mul, Nat.add_zero]
-      have hidx : data[i]!.toNat < entries.size := hbounds i hi
+      have hidx : data[i].toNat < entries.size := by
+        rw [← ByteArray.getElem!_eq_getElem data i hi]; exact hbounds i hi
       rw [expandPalette_go_getElem!_lt _ _ _ _ _ _
         (by simp only [ByteArray.size_push]; omega)]
       rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega)]
       rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega)]
       rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega)]
       rw [ByteArray.push_getElem!_eq]
-      rw [ByteArray.get!_eq_getElem!, dif_pos hidx]
+      simp only [dif_pos hidx, ByteArray.getElem!_eq_getElem data i hi]
     · generalize hdef :
         ((((acc.push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).r).push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).g).push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).b).push
-          (if (data.get! i).toNat < alphas.size then alphas.get! (data.get! i).toNat else 255))
+          (if ha : (data[i]).toNat < alphas.size then alphas[(data[i]).toNat] else 255))
         = acc'
       have haccsize : acc'.size = acc.size + 4 := by
         rw [← hdef]; simp only [ByteArray.size_push]
@@ -105,23 +106,24 @@ theorem expandPalette_go_g (data : ByteArray) (entries : Array PaletteEntry)
     by_cases hik : i = k
     · subst hik
       simp only [Nat.sub_self, Nat.zero_mul, Nat.add_zero]
-      have hidx : data[i]!.toNat < entries.size := hbounds i hi
+      have hidx : data[i].toNat < entries.size := by
+        rw [← ByteArray.getElem!_eq_getElem data i hi]; exact hbounds i hi
       rw [expandPalette_go_getElem!_lt _ _ _ _ _ _
         (by simp only [ByteArray.size_push]; omega)]
       rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega)]
       rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega)]
       rw [show acc.size + 1 = (acc.push _).size from by simp only [ByteArray.size_push]]
       rw [ByteArray.push_getElem!_eq]
-      rw [ByteArray.get!_eq_getElem!, dif_pos hidx]
+      simp only [dif_pos hidx, ByteArray.getElem!_eq_getElem data i hi]
     · generalize hdef :
         ((((acc.push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).r).push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).g).push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).b).push
-          (if (data.get! i).toNat < alphas.size then alphas.get! (data.get! i).toNat else 255))
+          (if ha : (data[i]).toNat < alphas.size then alphas[(data[i]).toNat] else 255))
         = acc'
       have haccsize : acc'.size = acc.size + 4 := by
         rw [← hdef]; simp only [ByteArray.size_push]
@@ -143,23 +145,24 @@ theorem expandPalette_go_b (data : ByteArray) (entries : Array PaletteEntry)
     by_cases hik : i = k
     · subst hik
       simp only [Nat.sub_self, Nat.zero_mul, Nat.add_zero]
-      have hidx : data[i]!.toNat < entries.size := hbounds i hi
+      have hidx : data[i].toNat < entries.size := by
+        rw [← ByteArray.getElem!_eq_getElem data i hi]; exact hbounds i hi
       rw [expandPalette_go_getElem!_lt _ _ _ _ _ _
         (by simp only [ByteArray.size_push]; omega)]
       rw [ByteArray.push_getElem!_lt _ _ _ (by simp only [ByteArray.size_push]; omega)]
       rw [show acc.size + 2 = ((acc.push _).push _).size from by
         simp only [ByteArray.size_push]]
       rw [ByteArray.push_getElem!_eq]
-      rw [ByteArray.get!_eq_getElem!, dif_pos hidx]
+      simp only [dif_pos hidx, ByteArray.getElem!_eq_getElem data i hi]
     · generalize hdef :
         ((((acc.push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).r).push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).g).push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).b).push
-          (if (data.get! i).toNat < alphas.size then alphas.get! (data.get! i).toNat else 255))
+          (if ha : (data[i]).toNat < alphas.size then alphas[(data[i]).toNat] else 255))
         = acc'
       have haccsize : acc'.size = acc.size + 4 := by
         rw [← hdef]; simp only [ByteArray.size_push]
@@ -185,16 +188,20 @@ theorem expandPalette_go_a (data : ByteArray) (entries : Array PaletteEntry)
       rw [show acc.size + 3 = (((acc.push _).push _).push _).size from by
         simp only [ByteArray.size_push]]
       rw [ByteArray.push_getElem!_eq]
-      simp only [alphaForIdx, ByteArray.get!_eq_getElem!]
+      simp only [alphaForIdx]
+      rw [ByteArray.getElem!_eq_getElem data i hi]
+      split <;> rename_i ha
+      · rw [ByteArray.get!_eq_getElem!, ByteArray.getElem!_eq_getElem alphas _ ha]
+      · rfl
     · generalize hdef :
         ((((acc.push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).r).push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).g).push
-          (if h : (data.get! i).toNat < entries.size then entries[(data.get! i).toNat]
+          (if h : (data[i]).toNat < entries.size then entries[(data[i]).toNat]
             else { r := 0, g := 0, b := 0 }).b).push
-          (if (data.get! i).toNat < alphas.size then alphas.get! (data.get! i).toNat else 255))
+          (if ha : (data[i]).toNat < alphas.size then alphas[(data[i]).toNat] else 255))
         = acc'
       have haccsize : acc'.size = acc.size + 4 := by
         rw [← hdef]; simp only [ByteArray.size_push]

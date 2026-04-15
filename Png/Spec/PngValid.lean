@@ -114,9 +114,7 @@ theorem decodePng_complete (data : ByteArray) (h : validPng data) :
   have hunfilter : ∃ rawPixels, unfilterScanlines decompressed ihdr.width ihdr.height
       4 (ihdr.width.toNat * 4) = .ok rawPixels := by
     simp only [unfilterScanlines]
-    rw [show (decompressed.size != ihdr.height.toNat * (1 + ihdr.width.toNat * 4)) = false from by
-      rw [hdsz]; exact bne_self_eq_false _]
-    simp only [Bool.false_eq_true, ↓reduceIte]
+    rw [dif_pos (show decompressed.size = ihdr.height.toNat * (1 + ihdr.width.toNat * 4) from hdsz)]
     exact ⟨_, rfl⟩
   obtain ⟨rawPixels, hunfilter⟩ := hunfilter
 

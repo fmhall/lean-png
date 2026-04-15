@@ -44,21 +44,25 @@ where
 def unfilterScanlines (decompressed : ByteArray) (width height : UInt32)
     (bpp scanlineBytes : Nat) : Except String ByteArray :=
   let rowStride := 1 + scanlineBytes  -- filter byte + pixel data
-  if decompressed.size != height.toNat * rowStride then
-    .error s!"decompressed size {decompressed.size} != expected {height.toNat * rowStride}"
-  else
+  if hsz : decompressed.size = height.toNat * rowStride then
     .ok (go decompressed width height bpp scanlineBytes rowStride 0
-      ByteArray.empty (ByteArray.mk (Array.replicate scanlineBytes 0)))
+      ByteArray.empty (ByteArray.mk (Array.replicate scanlineBytes 0)) hsz (by omega))
+  else
+    .error s!"decompressed size {decompressed.size} != expected {height.toNat * rowStride}"
 where
   go (decompressed : ByteArray) (width height : UInt32) (bpp scanlineBytes rowStride : Nat)
-      (r : Nat) (result priorRow : ByteArray) : ByteArray :=
-    if r < height.toNat then
+      (r : Nat) (result priorRow : ByteArray)
+      (hsz : decompressed.size = height.toNat * rowStride)
+      (hrs : rowStride ≥ 1) : ByteArray :=
+    if hr : r < height.toNat then
       let rowStart := r * rowStride
-      let ftByte := decompressed.get! rowStart
+      have : rowStart < decompressed.size := by
+        rw [hsz]; exact Nat.mul_lt_mul_of_pos_right hr hrs
+      let ftByte := decompressed[rowStart]
       let ft := FilterType.ofUInt8 ftByte
       let filteredRow := decompressed.extract (rowStart + 1) (rowStart + 1 + scanlineBytes)
       let rawRow := unfilterRow ft bpp filteredRow priorRow
-      go decompressed width height bpp scanlineBytes rowStride (r + 1) (result ++ rawRow) rawRow
+      go decompressed width height bpp scanlineBytes rowStride (r + 1) (result ++ rawRow) rawRow hsz hrs
     else result
   termination_by height.toNat - r
 
@@ -74,8 +78,8 @@ def scaleSubByte (data : ByteArray) (bitDepth : Nat) : ByteArray :=
   go data scale 0 ByteArray.empty
 where
   go (data : ByteArray) (scale : Nat) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i < data.size then
-      let v := data.get! i
+    if h : i < data.size then
+      let v := data[i]
       go data scale (i + 1) (acc.push (v.toNat * scale).toUInt8)
     else acc
   termination_by data.size - i
@@ -117,22 +121,22 @@ def applyTrnsKey (pixels : ByteArray) (trns : TRNSInfo) (bitDepth : UInt8) : Byt
   | _ => pixels  -- palette tRNS handled separately
 where
   goGray (pixels : ByteArray) (transGray : UInt8) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i + 3 < pixels.size then
-      let r := pixels.get! i
-      let g := pixels.get! (i + 1)
-      let b := pixels.get! (i + 2)
-      let a := pixels.get! (i + 3)
+    if h : i + 3 < pixels.size then
+      let r := pixels[i]'(by omega)
+      let g := pixels[i + 1]'(by omega)
+      let b := pixels[i + 2]'(by omega)
+      let a := pixels[i + 3]'(by omega)
       -- For grayscale→RGBA, R=G=B=gray. Check if the gray matches the transparent value.
       let a' := if r == transGray then 0 else a
       goGray pixels transGray (i + 4) (acc.push r |>.push g |>.push b |>.push a')
     else acc
   termination_by pixels.size - i
   goRGB (pixels : ByteArray) (transR transG transB : UInt8) (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i + 3 < pixels.size then
-      let r := pixels.get! i
-      let g := pixels.get! (i + 1)
-      let b := pixels.get! (i + 2)
-      let a := pixels.get! (i + 3)
+    if h : i + 3 < pixels.size then
+      let r := pixels[i]'(by omega)
+      let g := pixels[i + 1]'(by omega)
+      let b := pixels[i + 2]'(by omega)
+      let a := pixels[i + 3]'(by omega)
       let a' := if r == transR && g == transG && b == transB then 0 else a
       goRGB pixels transR transG transB (i + 4) (acc.push r |>.push g |>.push b |>.push a')
     else acc
