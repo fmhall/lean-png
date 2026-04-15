@@ -4,6 +4,7 @@ import PngTest.Conformance
 import PngTest.Idat
 import PngTest.Roundtrip
 import PngTest.Interlace
+import PngTest.ColorConvert
 
 /-!
 # PNG Test Suite
@@ -43,6 +44,13 @@ def main : IO UInt32 := do
     PngTest.Interlace.runAll
   catch e =>
     IO.eprintln s!"Interlace tests failed: {e}"
+    failures := failures + 1
+  IO.println ""
+  IO.println "=== Color Conversion ==="
+  try
+    PngTest.ColorConvert.runAll
+  catch e =>
+    IO.eprintln s!"ColorConvert tests failed: {e}"
     failures := failures + 1
   IO.println ""
   if !(← PngTest.Conformance.runAll) then failures := failures + 1
