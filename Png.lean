@@ -19,6 +19,7 @@ import Png.Native.ColorConvert
 -- Specifications and proofs
 import Png.Spec.BoundsCorrect
 import Png.Spec.ChunkCorrect
+import Png.Spec.ColorConvertCorrect
 import Png.Spec.FilterCorrect
 import Png.Spec.IdatCorrect
 import Png.Spec.RoundtripCorrect
