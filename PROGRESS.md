@@ -5,14 +5,14 @@ Per-session details are in `progress/`.
 
 ## Current State
 
-- **Phase**: Phase 3 complete, phase 4 next
+- **Phase**: Phase 4 complete, phase 5 next
 - **Toolchain**: leanprover/lean4:v4.29.0-rc4
 - **Sorries**: 0
-- **Theorems**: 301 (all proven)
-- **Source files**: 27 (18 Png/ + 8 PngTest/ + PngBench.lean)
-- **Lines of Lean**: ~9,600
-- **Tests**: 180 passing (162 PngSuite native conformance)
-- **Merged PRs**: 31
+- **Theorems**: 333 (all proven)
+- **Source files**: 29 (19 Png/ + 9 PngTest/ + PngBench.lean)
+- **Lines of Lean**: ~10,200
+- **Tests**: 180 passing (162 valid PngSuite + 14 corrupt rejected)
+- **Merged PRs**: 34
 
 ## Phase 1 — Complete
 
@@ -34,9 +34,14 @@ Per-session details are in `progress/`.
 - validPng predicate + decoder completeness theorem (PR #30)
 - Interlaced encoder + interlaced roundtrip theorem, fully proven (PR #31)
 
+## Phase 4 — Complete
+
+- Overflow safety: 15 theorems, maxImagePixels budget, fits-in-nat64 (PR #33)
+- Decompression bomb mitigation: 17 theorems, IDAT size validation chain (PR #34)
+- Corrupt PngSuite rejection: all 14 x* files correctly rejected (PR #34)
+
 ## Remaining
 
-- Phase 4: Overflow safety proofs, decompression bomb mitigation (#12, #13)
 - Phase 5: CI/CD with sorry-count enforcement, fuzzing harness (#14, #15)
 - Phase 6: Nightly agent automation (#16)
 - Phase 7: SECURITY.md with CVE-class elimination mapping (#17, #18)

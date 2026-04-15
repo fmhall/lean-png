@@ -7,9 +7,10 @@ are machine-checked by Lean 4's kernel with zero `sorry`. If it
 type-checks, encoding followed by decoding recovers your original image.
 
 Built on [lean-zip](https://github.com/kim-em/lean-zip)'s verified
-DEFLATE/CRC32/Adler32. 27 source files, ~9,600 lines of Lean,
-301 proven theorems, **zero `sorry`**, 180 tests. All 162 non-interlaced
-PngSuite images decode natively and match libpng pixel-for-pixel.
+DEFLATE/CRC32/Adler32. 29 source files, ~10,200 lines of Lean,
+333 proven theorems, **zero `sorry`**, 180 tests. All 176 PngSuite
+images handled correctly: 162 valid images decode natively and match
+libpng pixel-for-pixel; 14 corrupt images correctly rejected.
 
 ## Why verified PNG?
 
@@ -272,10 +273,12 @@ Png/
     BoundsCorrect.lean  — Index bound proofs (7 theorems)
     ChunkCorrect.lean   — Chunk + PLTE roundtrip proofs (57 theorems)
     ColorConvertCorrect.lean — Palette expansion bounds proof (10 theorems)
-    IdatCorrect.lean    — IDAT roundtrip proofs (19 theorems)
+    DecompBombSafe.lean — Decompression bomb mitigation (17 theorems)
     FilterCorrect.lean  — Filter roundtrip proofs, all 5 types (36 theorems)
+    IdatCorrect.lean    — IDAT roundtrip proofs (19 theorems)
     InterlaceCorrect.lean — Interlace proofs (61 theorems)
     InterlacedRoundtripCorrect.lean — Interlaced capstone (33 theorems)
+    OverflowSafe.lean   — Overflow safety for dimension arithmetic (15 theorems)
     PngValid.lean       — validPng predicate + completeness (5 theorems)
     RoundtripCorrect.lean — Non-interlaced capstone (53 theorems)
 PngTest/                — 180 tests (native vs FFI + PngSuite + unit tests)
@@ -302,8 +305,9 @@ exact zlib_decompressSingle_compress data level hsize
 
 ## Project status
 
-**27 source files. ~9,600 lines of Lean. 301 theorems. Zero `sorry`.
-180 tests. Both capstones proven (non-interlaced + Adam7).**
+**29 source files. ~10,200 lines of Lean. 333 theorems. Zero `sorry`.
+180 tests. Both capstones proven (non-interlaced + Adam7). All 176
+PngSuite images handled (162 decoded, 14 corrupt rejected).**
 
 ### All spec files fully proven (0 sorry)
 
@@ -312,10 +316,12 @@ exact zlib_decompressSingle_compress data level hsize
 | `BoundsCorrect.lean` | 7 | `parseChunk_offset_bounded`, `scanlineBytes_bounded` |
 | `ChunkCorrect.lean` | 57 | `parseChunk_serialize`, `plte_fromBytes_toBytes` |
 | `ColorConvertCorrect.lean` | 10 | `expandPalette_bounded` (CVE-class elimination) |
+| `DecompBombSafe.lean` | 17 | `extractDecompressValidate_size`, decompression bomb mitigation |
 | `FilterCorrect.lean` | 36 | `unfilterRow_filterRow` (all 5 types) |
 | `IdatCorrect.lean` | 19 | `decompressIdat_compressIdat` |
 | `InterlaceCorrect.lean` | 61 | `adam7Scatter_extract`, `adam7_coverage`, `adam7_uniqueness` |
 | `InterlacedRoundtripCorrect.lean` | 33 | **`decodePng_encodePngInterlaced`** (interlaced capstone) |
+| `OverflowSafe.lean` | 15 | `expectedIdatSize_fits_nat64`, `maxImagePixels` budget |
 | `PngValid.lean` | 5 | `decodePng_complete`, `encodePng_validPng` |
 | `RoundtripCorrect.lean` | 53 | **`decodePng_encodePng`** (non-interlaced capstone) |
 
