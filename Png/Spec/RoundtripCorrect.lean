@@ -769,7 +769,7 @@ theorem unfilterScanlines_filterScanlines (pixels : ByteArray) (width height : U
     (strategy : FilterStrategy)
     (hvalid : pixels.size = width.toNat * height.toNat * 4) :
     unfilterScanlines (filterScanlines pixels width height strategy) width height 4
-      = .ok pixels := by
+      (width.toNat * 4) = .ok pixels := by
   have hfsz := filterScanlines_size pixels width height strategy hvalid
   unfold unfilterScanlines
   simp only [hfsz, bne_self_eq_false, Bool.false_eq_true, ↓reduceIte]
@@ -1090,9 +1090,17 @@ theorem decodePng_encodePng (image : PngImage) (strategy : FilterStrategy)
   rw [hfromBytes]
   -- interlaceMethod check: .none
   simp only [show (ihdrInfo.interlaceMethod != .none) = false from by rfl]
-  -- bitDepth and colorType checks
-  simp only [show (ihdrInfo.bitDepth != 8 || ihdrInfo.colorType != .rgba) = false from by rfl]
-  -- The remaining goal involves extractDecompressValidate + unfilterScanlines.
+  -- bytesPerPixel and scanlineBytes for RGBA 8-bit
+  have hbpp : IHDRInfo.bytesPerPixel ihdrInfo = 4 := by
+    unfold IHDRInfo.bytesPerPixel IHDRInfo.channels
+    simp only [ihdrInfo, show UInt8.toNat 8 = 8 from by decide]
+  have hscanline : IHDRInfo.scanlineBytes ihdrInfo = image.width.toNat * 4 := by
+    unfold IHDRInfo.scanlineBytes IHDRInfo.channels
+    simp only [ihdrInfo, show UInt8.toNat 8 = 8 from by decide]
+    rw [show 4 * 8 * image.width.toNat = 8 * (image.width.toNat * 4) from by omega]
+    rw [Nat.mul_add_div (by omega : (8 : Nat) > 0) (image.width.toNat * 4) 7]
+    omega
+  -- The remaining goal involves extractDecompressValidate + unfilterScanlines + convertToRGBA.
   -- Abbreviations for the filtered data and IDAT chunks
   let filteredData := filterScanlines image.pixels image.width image.height strategy
   let idats := Idat.compressAndSplit filteredData
@@ -1111,16 +1119,6 @@ theorem decodePng_encodePng (image : PngImage) (strategy : FilterStrategy)
     exact h_roundtrip
   -- Step 2: extractDecompressValidate ihdrInfo result = .ok filteredData
   have hvalid_size : Idat.validateIdatSize ihdrInfo filteredData = true := by
-    -- validateIdatSize checks decompressedData.size == expectedIdatSize
-    -- expectedIdatSize = height * (1 + scanlineBytes)
-    -- scanlineBytes for RGBA 8-bit = (4 * 8 * width + 7) / 8 = width * 4
-    -- filterScanlines_size gives filteredData.size = height * (1 + width * 4)
-    have hscanline : IHDRInfo.scanlineBytes ihdrInfo = image.width.toNat * 4 := by
-      unfold IHDRInfo.scanlineBytes IHDRInfo.channels
-      simp only [ihdrInfo, show UInt8.toNat 8 = 8 from by decide]
-      rw [show 4 * 8 * image.width.toNat = 8 * (image.width.toNat * 4) from by omega]
-      rw [Nat.mul_add_div (by omega : (8 : Nat) > 0) (image.width.toNat * 4) 7]
-      omega
     have hexpected : IHDRInfo.expectedIdatSize ihdrInfo = image.height.toNat * (1 + image.width.toNat * 4) := by
       unfold IHDRInfo.expectedIdatSize; rw [hscanline]
     rw [Idat.validateIdatSize, hexpected,
@@ -1130,12 +1128,19 @@ theorem decodePng_encodePng (image : PngImage) (strategy : FilterStrategy)
     unfold Idat.extractDecompressValidate
     simp only [hextract_decompress, bind, Except.bind, hvalid_size, Bool.not_true,
       Bool.false_eq_true, ↓reduceIte, pure, Except.pure]
-  -- Step 3: unfilterScanlines filteredData width height 4 = .ok image.pixels
-  have hunfilter : unfilterScanlines filteredData ihdrInfo.width ihdrInfo.height 4 = .ok image.pixels := by
+  -- Step 3: unfilterScanlines filteredData width height 4 (width*4) = .ok image.pixels
+  have hunfilter : unfilterScanlines filteredData ihdrInfo.width ihdrInfo.height 4
+      (image.width.toNat * 4) = .ok image.pixels := by
     exact unfilterScanlines_filterScanlines image.pixels image.width image.height strategy hpixels_sz
   -- Step 4: Put it all together
-  -- The goal involves extractDecompressValidate and unfilterScanlines through Except.bind
-  simp only [hextract_validate, hunfilter, pure, Except.pure, ihdrInfo]
+  -- The goal involves extractDecompressValidate, unfilterScanlines, PLTE/tRNS lookup,
+  -- and convertToRGBA through Except.bind
+  simp only [hextract_validate, hbpp, hscanline, hunfilter, pure, Except.pure, ihdrInfo]
+  -- The decoder now does PLTE/tRNS lookup and convertToRGBA.
+  -- For RGBA, PLTE lookup returns none (colorType is .rgba, not .palette)
+  -- findChunk for tRNS returns none or some (doesn't matter, convertToRGBA ignores it for .rgba 8)
+  -- convertToRGBA .rgba 8 rawPixels ... = pure rawPixels
+  simp only [convertToRGBA]
   -- Goal: .ok { width := image.width, height := image.height, pixels := image.pixels } = .ok image
   -- Structure eta for PngImage
   cases image; rfl
