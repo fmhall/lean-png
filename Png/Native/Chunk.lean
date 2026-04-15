@@ -60,6 +60,7 @@ def IHDR : ChunkType := 0x49484452  -- "IHDR"
 def PLTE : ChunkType := 0x504C5445  -- "PLTE"
 def IDAT : ChunkType := 0x49444154  -- "IDAT"
 def IEND : ChunkType := 0x49454E44  -- "IEND"
+def tRNS : ChunkType := 0x74524E53  -- "tRNS"
 
 /-- Convert chunk type to its 4-byte representation. -/
 def toBytes (ct : ChunkType) : ByteArray := writeUInt32BE ct
@@ -148,6 +149,95 @@ def fromBytes (data : ByteArray) : Except String IHDRInfo :=
     .error s!"IHDR: expected 13 bytes, got {data.size}"
 
 end IHDRInfo
+
+/-! ## PLTE (palette) parsing and serialization -/
+
+namespace PLTEInfo
+
+/-- Parse PLTE chunk data: must be 3*N bytes where 1 ≤ N ≤ 256. -/
+def fromBytes (data : ByteArray) : Except String PLTEInfo := do
+  if data.size == 0 then
+    throw "PLTE: empty palette"
+  if data.size % 3 != 0 then
+    throw s!"PLTE: data length {data.size} not divisible by 3"
+  let numEntries := data.size / 3
+  if numEntries > 256 then
+    throw s!"PLTE: {numEntries} entries exceeds maximum of 256"
+  pure { entries := go data numEntries 0 #[] }
+where
+  go (data : ByteArray) (n i : Nat) (acc : Array PaletteEntry) : Array PaletteEntry :=
+    if i < n then
+      let off := i * 3
+      let entry : PaletteEntry := {
+        r := data.get! off
+        g := data.get! (off + 1)
+        b := data.get! (off + 2)
+      }
+      go data n (i + 1) (acc.push entry)
+    else acc
+  termination_by n - i
+
+/-- Serialize PLTE entries back to chunk data (3 bytes per entry). -/
+def toBytes (plte : PLTEInfo) : ByteArray :=
+  go plte.entries 0 ByteArray.empty
+where
+  go (entries : Array PaletteEntry) (i : Nat) (acc : ByteArray) : ByteArray :=
+    if h : i < entries.size then
+      let e := entries[i]
+      go entries (i + 1) (acc.push e.r |>.push e.g |>.push e.b)
+    else acc
+  termination_by entries.size - i
+
+end PLTEInfo
+
+/-! ## tRNS (transparency) parsing and serialization -/
+
+namespace TRNSInfo
+
+/-- Read a big-endian UInt16 from `data` at `offset`. -/
+private def readUInt16BE (data : ByteArray) (offset : Nat) : UInt16 :=
+  if h : offset + 2 ≤ data.size then
+    let b0 := data[offset]
+    let b1 := data[offset + 1]
+    (b0.toUInt16 <<< 8) ||| b1.toUInt16
+  else 0
+
+/-- Write a big-endian UInt16 as a 2-byte ByteArray. -/
+private def writeUInt16BE (val : UInt16) : ByteArray :=
+  .mk #[(val >>> 8).toUInt8, val.toUInt8]
+
+/-- Parse tRNS chunk data given the image's color type.
+    - Grayscale (type 0): 2 bytes
+    - RGB (type 2): 6 bytes
+    - Palette (type 3): N bytes (N ≤ palette size, validated by caller) -/
+def fromBytes (data : ByteArray) (colorType : ColorType) : Except String TRNSInfo := do
+  match colorType with
+  | .grayscale =>
+    if data.size != 2 then
+      throw s!"tRNS: grayscale expects 2 bytes, got {data.size}"
+    pure (.grayscale (readUInt16BE data 0))
+  | .rgb =>
+    if data.size != 6 then
+      throw s!"tRNS: RGB expects 6 bytes, got {data.size}"
+    pure (.rgb (readUInt16BE data 0) (readUInt16BE data 2) (readUInt16BE data 4))
+  | .palette =>
+    if data.size == 0 then
+      throw "tRNS: empty palette transparency"
+    if data.size > 256 then
+      throw s!"tRNS: {data.size} alpha entries exceeds maximum of 256"
+    pure (.palette data)
+  | .grayscaleAlpha =>
+    throw "tRNS: not allowed for grayscale+alpha images"
+  | .rgba =>
+    throw "tRNS: not allowed for RGBA images"
+
+/-- Serialize tRNS data back to chunk bytes. -/
+def toBytes : TRNSInfo → ByteArray
+  | .grayscale gray => writeUInt16BE gray
+  | .rgb r g b => writeUInt16BE r ++ writeUInt16BE g ++ writeUInt16BE b
+  | .palette alphas => alphas
+
+end TRNSInfo
 
 /-! ## PNG Chunk -/
 

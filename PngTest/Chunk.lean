@@ -217,6 +217,99 @@ def testParseIHDR : IO Unit := do
     check (parsed.interlaceMethod == .adam7) "interlace not Adam7"
   | .error e => throw (.userError s!"parseIHDR failed: {e}")
 
+/-! ## PLTE tests -/
+
+def testPLTERoundtrip : IO Unit := do
+  let plte : PLTEInfo := {
+    entries := #[
+      { r := 255, g := 0, b := 0 },
+      { r := 0, g := 255, b := 0 },
+      { r := 0, g := 0, b := 255 }
+    ]
+  }
+  let bytes := plte.toBytes
+  check (bytes.size == 9) s!"PLTE toBytes size {bytes.size} != 9"
+  match PLTEInfo.fromBytes bytes with
+  | .ok parsed =>
+    check (parsed.entries.size == 3) s!"parsed {parsed.entries.size} entries, expected 3"
+    check (parsed.entries[0]! == { r := 255, g := 0, b := 0 }) "entry 0 mismatch"
+    check (parsed.entries[1]! == { r := 0, g := 255, b := 0 }) "entry 1 mismatch"
+    check (parsed.entries[2]! == { r := 0, g := 0, b := 255 }) "entry 2 mismatch"
+  | .error e => throw (.userError s!"PLTE parse failed: {e}")
+
+def testPLTESingleEntry : IO Unit := do
+  let plte : PLTEInfo := { entries := #[{ r := 128, g := 64, b := 32 }] }
+  match PLTEInfo.fromBytes plte.toBytes with
+  | .ok parsed =>
+    check (parsed.entries.size == 1) "single entry PLTE size mismatch"
+    check (parsed == plte) "single entry PLTE roundtrip mismatch"
+  | .error e => throw (.userError s!"PLTE single entry parse failed: {e}")
+
+def testPLTEMaxEntries : IO Unit := do
+  -- 256 entries (maximum allowed)
+  let entries := Array.replicate 256 ({ r := 42, g := 84, b := 126 } : PaletteEntry)
+  let plte : PLTEInfo := { entries }
+  let bytes := plte.toBytes
+  check (bytes.size == 768) s!"PLTE 256 entries size {bytes.size} != 768"
+  match PLTEInfo.fromBytes bytes with
+  | .ok parsed =>
+    check (parsed.entries.size == 256) s!"parsed {parsed.entries.size} entries, expected 256"
+  | .error e => throw (.userError s!"PLTE 256 entries parse failed: {e}")
+
+def testPLTEEmpty : IO Unit := do
+  match PLTEInfo.fromBytes ByteArray.empty with
+  | .ok _ => throw (.userError "empty PLTE accepted")
+  | .error _ => pure ()
+
+def testPLTEBadLength : IO Unit := do
+  -- 4 bytes is not divisible by 3
+  match PLTEInfo.fromBytes (ByteArray.mk #[1, 2, 3, 4]) with
+  | .ok _ => throw (.userError "PLTE with 4 bytes accepted")
+  | .error _ => pure ()
+
+/-! ## tRNS tests -/
+
+def testTRNSGrayscale : IO Unit := do
+  let trns := TRNSInfo.grayscale 1000
+  let bytes := trns.toBytes
+  check (bytes.size == 2) s!"tRNS grayscale size {bytes.size} != 2"
+  match TRNSInfo.fromBytes bytes .grayscale with
+  | .ok parsed =>
+    check (parsed == trns) "tRNS grayscale roundtrip mismatch"
+  | .error e => throw (.userError s!"tRNS grayscale parse failed: {e}")
+
+def testTRNSRgb : IO Unit := do
+  let trns := TRNSInfo.rgb 100 200 300
+  let bytes := trns.toBytes
+  check (bytes.size == 6) s!"tRNS RGB size {bytes.size} != 6"
+  match TRNSInfo.fromBytes bytes .rgb with
+  | .ok parsed =>
+    check (parsed == trns) "tRNS RGB roundtrip mismatch"
+  | .error e => throw (.userError s!"tRNS RGB parse failed: {e}")
+
+def testTRNSPalette : IO Unit := do
+  let alphas := ByteArray.mk #[255, 128, 0, 64]
+  let trns := TRNSInfo.palette alphas
+  match TRNSInfo.fromBytes alphas .palette with
+  | .ok parsed =>
+    check (parsed == trns) "tRNS palette roundtrip mismatch"
+  | .error e => throw (.userError s!"tRNS palette parse failed: {e}")
+
+def testTRNSRgbaRejected : IO Unit := do
+  match TRNSInfo.fromBytes (ByteArray.mk #[0, 0]) .rgba with
+  | .ok _ => throw (.userError "tRNS accepted for RGBA")
+  | .error _ => pure ()
+
+def testTRNSGrayscaleAlphaRejected : IO Unit := do
+  match TRNSInfo.fromBytes (ByteArray.mk #[0, 0]) .grayscaleAlpha with
+  | .ok _ => throw (.userError "tRNS accepted for grayscale+alpha")
+  | .error _ => pure ()
+
+def testTRNSGrayscaleBadSize : IO Unit := do
+  match TRNSInfo.fromBytes (ByteArray.mk #[0, 0, 0]) .grayscale with
+  | .ok _ => throw (.userError "tRNS grayscale with 3 bytes accepted")
+  | .error _ => pure ()
+
 /-! ## Test runner -/
 
 def runAll : IO Unit := do
@@ -236,7 +329,18 @@ def runAll : IO Unit := do
     ("valid chunk sequence",    testValidChunkSequence),
     ("IDAT contiguity",         testIdatContiguity),
     ("parse multiple chunks",   testParseMultipleChunks),
-    ("parse IHDR",              testParseIHDR)
+    ("parse IHDR",              testParseIHDR),
+    ("PLTE roundtrip",          testPLTERoundtrip),
+    ("PLTE single entry",       testPLTESingleEntry),
+    ("PLTE max entries",        testPLTEMaxEntries),
+    ("PLTE empty",              testPLTEEmpty),
+    ("PLTE bad length",         testPLTEBadLength),
+    ("tRNS grayscale",          testTRNSGrayscale),
+    ("tRNS RGB",                testTRNSRgb),
+    ("tRNS palette",            testTRNSPalette),
+    ("tRNS RGBA rejected",      testTRNSRgbaRejected),
+    ("tRNS gray+alpha rejected", testTRNSGrayscaleAlphaRejected),
+    ("tRNS grayscale bad size", testTRNSGrayscaleBadSize)
   ]
   let mut passed := 0
   let mut failed := 0

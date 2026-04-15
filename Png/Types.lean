@@ -65,6 +65,39 @@ structure IHDRInfo where
   interlaceMethod   : InterlaceMethod
   deriving Repr, BEq, Inhabited
 
+/-! ## Palette and transparency -/
+
+/-- A single palette entry: red, green, blue. -/
+structure PaletteEntry where
+  r : UInt8
+  g : UInt8
+  b : UInt8
+  deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- PLTE chunk data: 1–256 RGB palette entries.
+    Per PNG spec §11.2.3, the number of entries must not exceed
+    `2^bitDepth` and the data length must be divisible by 3. -/
+structure PLTEInfo where
+  entries : Array PaletteEntry
+  deriving Repr, BEq
+
+/-- tRNS (transparency) chunk data.
+    Per PNG spec §11.3.2, the format depends on the color type:
+    - Grayscale (type 0): a single 16-bit gray sample value
+    - RGB (type 2): three 16-bit R, G, B sample values
+    - Palette (type 3): up to N alpha bytes (one per palette entry) -/
+inductive TRNSInfo where
+  | grayscale (gray : UInt16)
+  | rgb (r g b : UInt16)
+  | palette (alphas : ByteArray)
+
+instance : BEq TRNSInfo where
+  beq
+    | .grayscale g1, .grayscale g2 => g1 == g2
+    | .rgb r1 g1 b1, .rgb r2 g2 b2 => r1 == r2 && g1 == g2 && b1 == b2
+    | .palette a1, .palette a2 => a1 == a2
+    | _, _ => false
+
 /-- A decoded PNG image: RGBA 8-bit pixels with dimensions. -/
 structure PngImage where
   width  : UInt32
