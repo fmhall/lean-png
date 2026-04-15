@@ -13,7 +13,7 @@ properties that ensure correctness:
 4. **Total pixel count**: sum of pass dimensions = full dimensions
 5. **Dimension bounds**: sub-image dimensions ≤ full image dimensions
 
-All properties proven except `adam7Scatter_extract` (1 sorry remaining).
+All properties fully proven, including `adam7Scatter_extract` (0 sorry).
 -/
 
 namespace Png.Spec.InterlaceCorrect
@@ -540,6 +540,332 @@ private theorem setPixelAt_getElem!_eq (buf : ByteArray) (idx : Nat) (ch : Fin 4
   | ⟨3, _⟩ =>
     rw [ByteArray.getElem!_set!_self _ (idx + 3) _ (by rw [ByteArray.size_set!, ByteArray.size_set!, ByteArray.size_set!]; omega)]
 
+-- Injectivity of coordinate conversion functions
+private theorem fromSubRow_inj (p : Fin 7) {a b : Nat}
+    (h : fromSubRow p a = fromSubRow p b) : a = b := by
+  simp only [fromSubRow] at h
+  match p with
+  | ⟨0, _⟩ | ⟨1, _⟩ | ⟨2, _⟩ | ⟨3, _⟩ | ⟨4, _⟩ | ⟨5, _⟩ | ⟨6, _⟩ =>
+    simp only [adam7RowStride, adam7RowStart] at h; omega
+
+private theorem fromSubCol_inj (p : Fin 7) {a b : Nat}
+    (h : fromSubCol p a = fromSubCol p b) : a = b := by
+  simp only [fromSubCol] at h
+  match p with
+  | ⟨0, _⟩ | ⟨1, _⟩ | ⟨2, _⟩ | ⟨3, _⟩ | ⟨4, _⟩ | ⟨5, _⟩ | ⟨6, _⟩ =>
+    simp only [adam7ColStride, adam7ColStart] at h; omega
+
+-- Within a pass, different sub-image pixel indices map to different full-image positions
+private theorem pass_pixel_pos_inj (p : Fin 7) (subW fullWidth : Nat)
+    (k1 k2 : Nat) (hsubW_pos : subW > 0)
+    (hfc1 : fromSubCol p (k1 % subW) < fullWidth)
+    (hfc2 : fromSubCol p (k2 % subW) < fullWidth)
+    (heq : fromSubRow p (k1 / subW) * fullWidth + fromSubCol p (k1 % subW) =
+           fromSubRow p (k2 / subW) * fullWidth + fromSubCol p (k2 % subW)) :
+    k1 = k2 := by
+  have hfw_pos : fullWidth > 0 := by omega
+  have hr : fromSubRow p (k1 / subW) = fromSubRow p (k2 / subW) := by
+    have h1 := mul_add_div_eq (fromSubRow p (k1 / subW)) (fromSubCol p (k1 % subW))
+               fullWidth hfw_pos hfc1
+    rw [heq] at h1
+    have h2 := mul_add_div_eq (fromSubRow p (k2 / subW)) (fromSubCol p (k2 % subW))
+               fullWidth hfw_pos hfc2
+    omega
+  have hc : fromSubCol p (k1 % subW) = fromSubCol p (k2 % subW) := by
+    have heq' := heq; rw [hr] at heq'; omega
+  have hd := fromSubRow_inj p hr
+  have hm := fromSubCol_inj p hc
+  have h1 := Nat.div_add_mod k1 subW
+  have h2 := Nat.div_add_mod k2 subW
+  rw [hd, hm] at h1; omega
+
+-- toSubRow is bounded by passHeight for coordinates that belong to the pass
+private theorem toSubRow_lt_passHeight (p : Fin 7) (r h : Nat)
+    (hr_lt : r < h) (hr_mod : r % adam7RowStride p = adam7RowStart p) :
+    toSubRow p r < passHeight p h := by
+  simp only [toSubRow, passHeight]
+  have hstride := adam7RowStride_pos p
+  have hstart_le : adam7RowStart p ≤ r := hr_mod ▸ Nat.mod_le r _
+  have h_not_le : ¬(h ≤ adam7RowStart p) := by omega
+  simp only [h_not_le, ↓reduceIte]
+  have hmod := Nat.div_add_mod r (adam7RowStride p)
+  rw [hr_mod] at hmod
+  -- r = stride * (r / stride) + start, so r - start = stride * (r / stride)
+  have hdvd : adam7RowStride p * ((r - adam7RowStart p) / adam7RowStride p) =
+              r - adam7RowStart p := by
+    have hsub : r - adam7RowStart p = adam7RowStride p * (r / adam7RowStride p) := by omega
+    rw [hsub, Nat.mul_div_cancel_left _ hstride]
+  suffices hsuff : (r - adam7RowStart p) / adam7RowStride p + 1 ≤
+      (h - adam7RowStart p + adam7RowStride p - 1) / adam7RowStride p by omega
+  rw [Nat.le_div_iff_mul_le hstride, Nat.add_mul, Nat.one_mul]
+  have hprod : ((r - adam7RowStart p) / adam7RowStride p) * adam7RowStride p =
+               r - adam7RowStart p := by rw [Nat.mul_comm]; exact hdvd
+  omega
+
+-- toSubCol is bounded by passWidth for coordinates that belong to the pass
+private theorem toSubCol_lt_passWidth (p : Fin 7) (c w : Nat)
+    (hc_lt : c < w) (hc_mod : c % adam7ColStride p = adam7ColStart p) :
+    toSubCol p c < passWidth p w := by
+  simp only [toSubCol, passWidth]
+  have hstride := adam7ColStride_pos p
+  have hstart_le : adam7ColStart p ≤ c := hc_mod ▸ Nat.mod_le c _
+  have h_not_le : ¬(w ≤ adam7ColStart p) := by omega
+  simp only [h_not_le, ↓reduceIte]
+  have hmod := Nat.div_add_mod c (adam7ColStride p)
+  rw [hc_mod] at hmod
+  have hdvd : adam7ColStride p * ((c - adam7ColStart p) / adam7ColStride p) =
+              c - adam7ColStart p := by
+    have hsub : c - adam7ColStart p = adam7ColStride p * (c / adam7ColStride p) := by omega
+    rw [hsub, Nat.mul_div_cancel_left _ hstride]
+  suffices hsuff : (c - adam7ColStart p) / adam7ColStride p + 1 ≤
+      (w - adam7ColStart p + adam7ColStride p - 1) / adam7ColStride p by omega
+  rw [Nat.le_div_iff_mul_le hstride, Nat.add_mul, Nat.one_mul]
+  have hprod : ((c - adam7ColStart p) / adam7ColStride p) * adam7ColStride p =
+               c - adam7ColStart p := by rw [Nat.mul_comm]; exact hdvd
+  omega
+
+-- passWidth > 0 when some column belongs to the pass
+private theorem passWidth_pos_of_col (p : Fin 7) (c w : Nat)
+    (hc_lt : c < w) (hc_mod : c % adam7ColStride p = adam7ColStart p) :
+    passWidth p w > 0 := by
+  have := toSubCol_lt_passWidth p c w hc_lt hc_mod; omega
+
+-- Key write lemma: scatterPass.go writes the correct byte at the owning iteration's position
+private theorem scatterPass_go_write_byte
+    (buf : ByteArray) (fullWidth : Nat) (subPixels : ByteArray)
+    (subW : Nat) (p : Fin 7) (i total : Nat) (k : Nat) (ch : Fin 4)
+    (hk_lo : i ≤ k) (hk_hi : k < total)
+    (hsubW_pos : subW > 0)
+    (hfc_lt : ∀ m, m < total → fromSubCol p (m % subW) < fullWidth)
+    (hbuf_all : ∀ m, i ≤ m → m < total →
+      4 * (fromSubRow p (m / subW) * fullWidth + fromSubCol p (m % subW)) + 3 < buf.size)
+    (hsrc : ∀ m, m < total → 4 * m + 3 < subPixels.size) :
+    (scatterPass.go buf fullWidth subPixels subW p i total)[4 * (fromSubRow p (k / subW) * fullWidth + fromSubCol p (k % subW)) + ch.val]! =
+    subPixels[4 * k + ch.val]! := by
+  unfold scatterPass.go
+  split
+  · omega
+  · rename_i hlt
+    simp only [show subW > 0 from hsubW_pos, ↓reduceIte]
+    by_cases hki : k = i
+    · -- This iteration writes our byte; remaining iterations preserve it
+      rw [show k / subW = i / subW by rw [hki],
+          show k % subW = i % subW by rw [hki]]
+      rw [scatterPass_go_preserve _ _ _ _ _ (i + 1) _ _
+          (fun k' hk'_lo hk'_hi => by
+            simp only [show subW > 0 from hsubW_pos, ↓reduceIte]
+            intro heq
+            have h4div : (4 * (fromSubRow p (i / subW) * fullWidth +
+                          fromSubCol p (i % subW)) + ch.val) / 4 =
+                         fromSubRow p (i / subW) * fullWidth + fromSubCol p (i % subW) := by
+              omega
+            rw [h4div] at heq
+            exact absurd (pass_pixel_pos_inj p subW fullWidth i k' hsubW_pos
+                  (hfc_lt i (by omega)) (hfc_lt k' hk'_hi) heq)
+                  (by omega))]
+      -- setPixelAt writes the correct byte
+      rw [setPixelAt_getElem!_eq _ _ ch _ (hbuf_all i (Nat.le_refl i) (by omega))]
+      -- Change k to i in the getElem! RHS (no proof dependency issues)
+      rw [hki]
+      -- Simplify the pixel read from subPixels
+      have hsrc_i := hsrc i (by omega)
+      simp only [show 4 * i + 3 < subPixels.size from hsrc_i, ↓reduceDIte]
+      -- Each channel: proven-bounds LHS vs getElem! RHS
+      match ch with
+      | ⟨0, _⟩ =>
+        simp only [Nat.add_zero]
+        exact (getElem!_pos subPixels _ (by omega)).symm
+      | ⟨1, _⟩ => exact (getElem!_pos subPixels _ (by omega)).symm
+      | ⟨2, _⟩ => exact (getElem!_pos subPixels _ (by omega)).symm
+      | ⟨3, _⟩ => exact (getElem!_pos subPixels _ (by omega)).symm
+    · -- k > i: use IH on the recursive call
+      have hki' : i + 1 ≤ k := by omega
+      have : total - (i + 1) < total - i := by omega
+      exact scatterPass_go_write_byte _ fullWidth subPixels subW p (i + 1) total k ch
+        hki' hk_hi hsubW_pos hfc_lt
+        (fun m hm1 hm2 => by rw [setPixelAt_size]; exact hbuf_all m (by omega) hm2)
+        hsrc
+  termination_by total - i
+
+-- After the owning pass, remaining passes preserve the byte (by uniqueness)
+private theorem adam7Scatter_go_preserve_after (subImages : Array PngImage) (buf : ByteArray)
+    (fullWidth : Nat) (startP : Nat) (j : Nat) (p : Fin 7)
+    (hp_done : p.val < startP)
+    (hp_own : j / 4 / fullWidth % adam7RowStride p = adam7RowStart p ∧
+              j / 4 % fullWidth % adam7ColStride p = adam7ColStart p)
+    (hfw_pos : fullWidth > 0)
+    (hsize : subImages.size = 7)
+    (hsw : ∀ q : Fin 7, (subImages[q.val]'(by rw [hsize]; exact q.isLt)).width.toNat =
+           passWidth q fullWidth) :
+    (adam7Scatter.go subImages buf fullWidth startP)[j]! = buf[j]! := by
+  unfold adam7Scatter.go
+  split
+  · rename_i hlt
+    split
+    · rename_i hp_sub
+      have : 7 - (startP + 1) < 7 - startP := by omega
+      rw [adam7Scatter_go_preserve_after subImages _ fullWidth (startP + 1) j p (by omega)
+          hp_own hfw_pos hsize hsw]
+      exact scatterPass_preserve_byte buf fullWidth _ ⟨startP, hlt⟩ j
+        (fun hq_own => by
+          have := adam7_uniqueness (j / 4 / fullWidth) (j / 4 % fullWidth)
+            ⟨startP, hlt⟩ p hq_own hp_own
+          have := congrArg Fin.val this
+          simp only [Fin.val_mk] at this; omega)
+        hfw_pos (hsw ⟨startP, hlt⟩)
+    · rename_i hp_nsub
+      have : 7 - (startP + 1) < 7 - startP := by omega
+      exact adam7Scatter_go_preserve_after subImages buf fullWidth (startP + 1) j p (by omega)
+        hp_own hfw_pos hsize hsw
+  · rfl
+  termination_by 7 - startP
+
+-- scatterPass writes the correct sub-image byte at a pass-owned position
+private theorem scatterPass_at_byte
+    (buf : ByteArray) (fullWidth fullHeight : Nat) (subImage : PngImage) (p : Fin 7) (j : Nat)
+    (hr_mod : j / 4 / fullWidth % adam7RowStride p = adam7RowStart p)
+    (hc_mod : j / 4 % fullWidth % adam7ColStride p = adam7ColStart p)
+    (hfw_pos : fullWidth > 0)
+    (hj_row : j / 4 / fullWidth < fullHeight)
+    (hsw : subImage.width.toNat = passWidth p fullWidth)
+    (hsh : subImage.height.toNat = passHeight p fullHeight)
+    (hsp : subImage.pixels.size = passWidth p fullWidth * passHeight p fullHeight * 4)
+    (hbuf_size : buf.size = fullWidth * fullHeight * 4) :
+    (scatterPass buf fullWidth subImage p)[j]! =
+    subImage.pixels[4 * (toSubRow p (j / 4 / fullWidth) * passWidth p fullWidth +
+                         toSubCol p (j / 4 % fullWidth)) + j % 4]! := by
+  -- Derived bounds
+  have hc_lt : j / 4 % fullWidth < fullWidth := Nat.mod_lt _ hfw_pos
+  have hsubW_pos : passWidth p fullWidth > 0 := passWidth_pos_of_col p _ _ hc_lt hc_mod
+  have hsc_lt := toSubCol_lt_passWidth p _ _ hc_lt hc_mod
+  have hsr_lt := toSubRow_lt_passHeight p _ _ hj_row hr_mod
+  have hk_lt : toSubRow p (j / 4 / fullWidth) * passWidth p fullWidth +
+               toSubCol p (j / 4 % fullWidth) <
+               passWidth p fullWidth * passHeight p fullHeight := by
+    have h1 : toSubRow p (j / 4 / fullWidth) * passWidth p fullWidth +
+              toSubCol p (j / 4 % fullWidth) <
+              (toSubRow p (j / 4 / fullWidth) + 1) * passWidth p fullWidth := by
+      rw [Nat.add_mul, Nat.one_mul]; omega
+    have h2 : (toSubRow p (j / 4 / fullWidth) + 1) * passWidth p fullWidth ≤
+              passHeight p fullHeight * passWidth p fullWidth :=
+      Nat.mul_le_mul_right _ (by omega)
+    rw [Nat.mul_comm (passWidth p fullWidth)]; omega
+  have hk_div := mul_add_div_eq (toSubRow p (j / 4 / fullWidth))
+    (toSubCol p (j / 4 % fullWidth)) (passWidth p fullWidth) hsubW_pos hsc_lt
+  have hk_mod := mul_add_mod_eq (toSubRow p (j / 4 / fullWidth))
+    (toSubCol p (j / 4 % fullWidth)) (passWidth p fullWidth) hsc_lt
+  have hfr := fromSubRow_toSubRow p _ hr_mod
+  have hfc := fromSubCol_toSubCol p _ hc_mod
+  -- Index equation: scatter position for pixel k equals j
+  have hj_eq : 4 * (fromSubRow p ((toSubRow p (j / 4 / fullWidth) * passWidth p fullWidth +
+                 toSubCol p (j / 4 % fullWidth)) / passWidth p fullWidth) * fullWidth +
+                 fromSubCol p ((toSubRow p (j / 4 / fullWidth) * passWidth p fullWidth +
+                 toSubCol p (j / 4 % fullWidth)) % passWidth p fullWidth)) + j % 4 = j := by
+    rw [hk_div, hk_mod, hfr, hfc,
+        show j / 4 / fullWidth * fullWidth + j / 4 % fullWidth = j / 4
+          from by rw [Nat.mul_comm]; exact Nat.div_add_mod _ fullWidth,
+        show 4 * (j / 4) + j % 4 = j
+          from Nat.div_add_mod j 4]
+  -- Unfold scatterPass and apply scatterPass_go_write_byte
+  simp only [scatterPass, hsw, hsh]
+  -- Obtain the write byte result; then show it matches our goal at index j
+  have hwrite := scatterPass_go_write_byte buf fullWidth subImage.pixels
+    (passWidth p fullWidth) p 0
+    (passWidth p fullWidth * passHeight p fullHeight)
+    (toSubRow p (j / 4 / fullWidth) * passWidth p fullWidth +
+     toSubCol p (j / 4 % fullWidth))
+    ⟨j % 4, Nat.mod_lt j (by omega)⟩
+    (Nat.zero_le _) hk_lt hsubW_pos
+    (fun m _ => fromSubCol_lt p _ fullWidth (Nat.mod_lt _ hsubW_pos))
+    (fun m _ hm => by
+      rw [hbuf_size]
+      have hmr := fromSubRow_lt p (m / passWidth p fullWidth) fullHeight
+        (Nat.div_lt_of_lt_mul hm)
+      have hmc := fromSubCol_lt p (m % passWidth p fullWidth) fullWidth
+        (Nat.mod_lt _ hsubW_pos)
+      have : fromSubRow p (m / passWidth p fullWidth) * fullWidth +
+             fromSubCol p (m % passWidth p fullWidth) < fullHeight * fullWidth := by
+        calc fromSubRow p (m / passWidth p fullWidth) * fullWidth +
+             fromSubCol p (m % passWidth p fullWidth)
+            < fromSubRow p (m / passWidth p fullWidth) * fullWidth + fullWidth := by omega
+          _ = (fromSubRow p (m / passWidth p fullWidth) + 1) * fullWidth := by
+              rw [Nat.add_mul, Nat.one_mul]
+          _ ≤ fullHeight * fullWidth := Nat.mul_le_mul_right _ (by omega)
+      rw [show fullWidth * fullHeight = fullHeight * fullWidth from Nat.mul_comm _ _]; omega)
+    (fun m hm => by rw [hsp]; omega)
+  -- hwrite : (...)[index_expr]! = subImage.pixels[4*k + j%4]!
+  -- index_expr = j by hj_eq, so rw to convert
+  rwa [show 4 * (fromSubRow p ((toSubRow p (j / 4 / fullWidth) * passWidth p fullWidth +
+         toSubCol p (j / 4 % fullWidth)) / passWidth p fullWidth) * fullWidth +
+         fromSubCol p ((toSubRow p (j / 4 / fullWidth) * passWidth p fullWidth +
+         toSubCol p (j / 4 % fullWidth)) % passWidth p fullWidth)) +
+         (⟨j % 4, Nat.mod_lt j (by omega)⟩ : Fin 4).val = j
+       from hj_eq] at hwrite
+
+-- Composition: adam7Scatter.go at byte j (owned by pass p) produces the sub-image pixel byte
+private theorem adam7Scatter_go_byte_at_pass
+    (subImages : Array PngImage) (buf : ByteArray)
+    (fullWidth fullHeight : Nat) (startP : Nat) (j : Nat) (p : Fin 7)
+    (hp_ge : startP ≤ p.val)
+    (hr_mod : j / 4 / fullWidth % adam7RowStride p = adam7RowStart p)
+    (hc_mod : j / 4 % fullWidth % adam7ColStride p = adam7ColStart p)
+    (hfw_pos : fullWidth > 0)
+    (hj_row : j / 4 / fullWidth < fullHeight)
+    (hsize : subImages.size = 7)
+    (hsw : ∀ q : Fin 7, (subImages[q.val]'(by rw [hsize]; exact q.isLt)).width.toNat =
+           passWidth q fullWidth)
+    (hsh : ∀ q : Fin 7, (subImages[q.val]'(by rw [hsize]; exact q.isLt)).height.toNat =
+           passHeight q fullHeight)
+    (hsp : ∀ q : Fin 7, (subImages[q.val]'(by rw [hsize]; exact q.isLt)).pixels.size =
+           passWidth q fullWidth * passHeight q fullHeight * 4)
+    (hbuf_size : buf.size = fullWidth * fullHeight * 4) :
+    (adam7Scatter.go subImages buf fullWidth startP)[j]! =
+    (subImages[p.val]'(by rw [hsize]; exact p.isLt)).pixels[
+      4 * (toSubRow p (j / 4 / fullWidth) * passWidth p fullWidth +
+           toSubCol p (j / 4 % fullWidth)) + j % 4]! := by
+  unfold adam7Scatter.go
+  split
+  · rename_i hlt -- startP < 7
+    split
+    · rename_i hp_sub
+      by_cases hpeq : startP = p.val
+      · -- Base case: this is pass p
+        have : 7 - (startP + 1) < 7 - startP := by omega
+        -- Rewrite startP → p.val
+        have hpeq' : startP = p.val := hpeq; subst hpeq'
+        -- After scatterPass at pass p, remaining passes preserve byte j
+        rw [adam7Scatter_go_preserve_after subImages _ fullWidth (p.val + 1) j p
+            (by omega) ⟨hr_mod, hc_mod⟩ hfw_pos hsize hsw]
+        -- Apply scatterPass_at_byte
+        exact scatterPass_at_byte buf fullWidth fullHeight
+          (subImages[p.val]'hp_sub) p j
+          hr_mod hc_mod hfw_pos hj_row (hsw p) (hsh p) (hsp p) hbuf_size
+      · -- IH case: startP < p.val
+        have : 7 - (startP + 1) < 7 - startP := by omega
+        exact adam7Scatter_go_byte_at_pass subImages _ fullWidth fullHeight (startP + 1)
+          j p (by omega) hr_mod hc_mod hfw_pos hj_row hsize
+          hsw hsh hsp (by rw [scatterPass_size]; exact hbuf_size)
+    · rename_i hp_nsub; rw [hsize] at hp_nsub; omega
+  · rename_i h_ge; omega
+  termination_by 7 - startP
+
+/-! ## Extract produces correctly sized sub-images -/
+
+/-- The array returned by `adam7Extract` always has exactly 7 elements. -/
+theorem adam7Extract_size (image : PngImage) :
+    (adam7Extract image).size = 7 := by
+  simp only [adam7Extract]
+  -- Unfold go 7 times
+  unfold adam7Extract.go; simp only [show (0 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (1 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (2 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (3 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (4 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (5 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show (6 : Nat) < 7 from by omega, ↓reduceDIte]
+  unfold adam7Extract.go; simp only [show ¬(7 : Nat) < 7 from by omega, ↓reduceDIte]
+  simp only [Array.size_push, Array.size_empty]
+
 /-- Scattering the extracted sub-images back into a full image
     recovers the original image. -/
 theorem adam7Scatter_extract (image : PngImage)
@@ -578,16 +904,97 @@ theorem adam7Scatter_extract (image : PngImage)
         · have hfw_pos : iw.toNat > 0 := Nat.pos_of_ne_zero hw_pos
           -- For each byte j, find the owning pass
           have ⟨p, hp⟩ := adam7_coverage (j / 4 / iw.toNat) (j / 4 % iw.toNat)
-          -- Key idea: after scatter.go processes passes 0..6:
-          -- 1. Pass p writes extractPass(image,p) pixel at (toSubRow r, toSubCol c) to position j
-          -- 2. All other passes preserve byte j (by adam7_uniqueness)
-          -- The extracted pixel at sub-image coordinates = original pixel (by extractPass definition)
-          -- So scatter result at j = original at j
-          --
-          -- For now, this complex byte-tracking argument remains as sorry.
-          -- The infrastructure (coverage, uniqueness, coordinate roundtrips,
-          -- scatterPass_preserve_byte, extractPass_go_content) is all proven above.
-          sorry
+          -- Step 1: adam7Scatter.go gives the sub-image pixel byte
+          have hextract_sz := adam7Extract_size ⟨iw, ih, ipix⟩
+          have hsw : ∀ q : Fin 7,
+              ((adam7Extract ⟨iw, ih, ipix⟩)[q.val]'(by rw [hextract_sz]; exact q.isLt)).width.toNat =
+              passWidth q iw.toNat := by
+            intro q; rw [adam7Extract_getElem _ q hextract_sz]; exact extractPass_width _ q
+          have hsh : ∀ q : Fin 7,
+              ((adam7Extract ⟨iw, ih, ipix⟩)[q.val]'(by rw [hextract_sz]; exact q.isLt)).height.toNat =
+              passHeight q ih.toNat := by
+            intro q; rw [adam7Extract_getElem _ q hextract_sz]; exact extractPass_height _ q
+          have hsp : ∀ q : Fin 7,
+              ((adam7Extract ⟨iw, ih, ipix⟩)[q.val]'(by rw [hextract_sz]; exact q.isLt)).pixels.size =
+              passWidth q iw.toNat * passHeight q ih.toNat * 4 := by
+            intro q; rw [adam7Extract_getElem _ q hextract_sz]; exact extractPass_pixels_size _ q
+          have hbuf_size : (ByteArray.mk (Array.replicate (iw.toNat * ih.toNat * 4) 0)).size =
+              iw.toNat * ih.toNat * 4 := by
+            simp only [ByteArray.size, Array.size_replicate]
+          -- Derive j / 4 / w < h from j < w * h * 4
+          rw [adam7Scatter_go_size, ByteArray.size, Array.size_replicate] at hj
+          have hj_row : j / 4 / iw.toNat < ih.toNat := by
+            have hj4 : j / 4 < iw.toNat * ih.toNat := by omega
+            exact Nat.div_lt_of_lt_mul hj4
+          -- Apply the composition lemma
+          rw [adam7Scatter_go_byte_at_pass (adam7Extract ⟨iw, ih, ipix⟩) _ iw.toNat ih.toNat
+              0 j p (Nat.zero_le _) hp.1 hp.2 hfw_pos hj_row hextract_sz hsw hsh hsp hbuf_size]
+          -- Step 2: Replace adam7Extract[p] with extractPass
+          rw [adam7Extract_getElem _ p hextract_sz]
+          -- Step 3: Use extractPass_go_content to get original pixels
+          -- Goal: (extractPass ⟨iw, ih, ipix⟩ p).pixels[4*k + j%4]! = ipix[j]!
+          simp only [extractPass]
+          -- Derived bounds
+          have hc_lt : j / 4 % iw.toNat < iw.toNat := Nat.mod_lt _ hfw_pos
+          have hsubW_pos : passWidth p iw.toNat > 0 :=
+            passWidth_pos_of_col p _ _ hc_lt hp.2
+          have hsc_lt := toSubCol_lt_passWidth p _ _ hc_lt hp.2
+          have hsr_lt := toSubRow_lt_passHeight p _ _ hj_row hp.1
+          have hk_lt : toSubRow p (j / 4 / iw.toNat) * passWidth p iw.toNat +
+                       toSubCol p (j / 4 % iw.toNat) <
+                       passWidth p iw.toNat * passHeight p ih.toNat := by
+            have h1 : toSubRow p (j / 4 / iw.toNat) * passWidth p iw.toNat +
+                      toSubCol p (j / 4 % iw.toNat) <
+                      (toSubRow p (j / 4 / iw.toNat) + 1) * passWidth p iw.toNat := by
+              rw [Nat.add_mul, Nat.one_mul]; omega
+            have h2 : (toSubRow p (j / 4 / iw.toNat) + 1) * passWidth p iw.toNat ≤
+                      passHeight p ih.toNat * passWidth p iw.toNat :=
+              Nat.mul_le_mul_right _ (by omega)
+            rw [Nat.mul_comm (passWidth p iw.toNat)]; omega
+          -- Apply extractPass_go_content
+          have hcontent := extractPass_go_content ipix iw.toNat p (passWidth p iw.toNat)
+            0 (passWidth p iw.toNat * passHeight p ih.toNat)
+            ByteArray.empty
+            (toSubRow p (j / 4 / iw.toNat) * passWidth p iw.toNat +
+             toSubCol p (j / 4 % iw.toNat))
+            (Nat.zero_le _) hk_lt
+            ⟨j % 4, Nat.mod_lt j (by omega)⟩ hsubW_pos
+          simp only [ByteArray.size_empty, Nat.zero_add, Nat.sub_zero] at hcontent
+          -- hcontent: (...)[4*k + ch]! = if h : idx+3 < ipix.size then ipix[idx+ch] else 0
+          -- Show the indices match and the dite resolves
+          rw [hcontent]
+          -- Compute div/mod of k
+          have hk_div := mul_add_div_eq (toSubRow p (j / 4 / iw.toNat))
+            (toSubCol p (j / 4 % iw.toNat)) (passWidth p iw.toNat) hsubW_pos hsc_lt
+          have hk_mod := mul_add_mod_eq (toSubRow p (j / 4 / iw.toNat))
+            (toSubCol p (j / 4 % iw.toNat)) (passWidth p iw.toNat) hsc_lt
+          have hfr := fromSubRow_toSubRow p _ hp.1
+          have hfc := fromSubCol_toSubCol p _ hp.2
+          -- idx = 4 * (r * w + c) = 4 * (j / 4)
+          simp only [hk_div, hk_mod, hfr, hfc]
+          -- idx + ch = 4 * (j/4/w * w + j/4%w) + j%4 = 4*(j/4) + j%4 = j
+          have hj_recon : 4 * (j / 4 / iw.toNat * iw.toNat + j / 4 % iw.toNat) + 3 < ipix.size := by
+            rw [show j / 4 / iw.toNat * iw.toNat + j / 4 % iw.toNat = j / 4
+                from by rw [Nat.mul_comm]; exact Nat.div_add_mod _ iw.toNat]
+            -- Goal: 4 * (j / 4) + 3 < ipix.size
+            -- hj : j < iw.toNat * ih.toNat * 4, hpix_sz : ipix.size = iw.toNat * ih.toNat * 4
+            rw [hpix_sz]
+            -- Goal: 4 * (j / 4) + 3 < iw.toNat * ih.toNat * 4
+            -- Need j / 4 < iw.toNat * ih.toNat for omega
+            have hj4 : j / 4 < iw.toNat * ih.toNat := by
+              have : j < 4 * (iw.toNat * ih.toNat) := by omega
+              exact Nat.div_lt_of_lt_mul this
+            rw [show iw.toNat * ih.toNat * 4 = 4 * (iw.toNat * ih.toNat) from by
+              rw [Nat.mul_comm]]
+            omega
+          simp only [hj_recon, ↓reduceDIte]
+          -- Now: ipix[idx]'proof = ipix[j]! where idx = j
+          -- Convert proven-bounds getElem to getElem!, then rewrite index
+          have hidx_eq : 4 * (j / 4 / iw.toNat * iw.toNat + j / 4 % iw.toNat) + j % 4 = j := by
+            rw [show j / 4 / iw.toNat * iw.toNat + j / 4 % iw.toNat = j / 4
+                from by rw [Nat.mul_comm]; exact Nat.div_add_mod _ iw.toNat]
+            exact Nat.div_add_mod j 4
+          rw [← getElem!_pos ipix _ (by rw [hidx_eq]; simp only [ByteArray.size] at hpix_sz; omega), hidx_eq]
 
 /-! ## Total Pixel Count Conservation -/
 
@@ -747,22 +1154,5 @@ theorem adam7_total_pixels (width height : Nat) :
   have h := totalPassPixelsDirect_linear (width / 8) (height / 8) ⟨width % 8, hrw⟩ ⟨height % 8, hrh⟩
   rwa [show 8 * (width / 8) + width % 8 = width from by omega,
        show 8 * (height / 8) + height % 8 = height from by omega] at h
-
-/-! ## Extract produces correctly sized sub-images -/
-
-/-- The array returned by `adam7Extract` always has exactly 7 elements. -/
-theorem adam7Extract_size (image : PngImage) :
-    (adam7Extract image).size = 7 := by
-  simp only [adam7Extract]
-  -- Unfold go 7 times
-  unfold adam7Extract.go; simp only [show (0 : Nat) < 7 from by omega, ↓reduceDIte]
-  unfold adam7Extract.go; simp only [show (1 : Nat) < 7 from by omega, ↓reduceDIte]
-  unfold adam7Extract.go; simp only [show (2 : Nat) < 7 from by omega, ↓reduceDIte]
-  unfold adam7Extract.go; simp only [show (3 : Nat) < 7 from by omega, ↓reduceDIte]
-  unfold adam7Extract.go; simp only [show (4 : Nat) < 7 from by omega, ↓reduceDIte]
-  unfold adam7Extract.go; simp only [show (5 : Nat) < 7 from by omega, ↓reduceDIte]
-  unfold adam7Extract.go; simp only [show (6 : Nat) < 7 from by omega, ↓reduceDIte]
-  unfold adam7Extract.go; simp only [show ¬(7 : Nat) < 7 from by omega, ↓reduceDIte]
-  simp only [Array.size_push, Array.size_empty]
 
 end Png.Spec.InterlaceCorrect
