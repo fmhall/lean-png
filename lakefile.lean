@@ -33,6 +33,7 @@ package «lean-png» where
 require zipCommon from git "https://github.com/kim-em/lean-zip-common" @ "87480b0"
 require leanZip from git "https://github.com/kim-em/lean-zip"
 
+@[default_target]
 lean_lib Png
 
 -- libpng FFI

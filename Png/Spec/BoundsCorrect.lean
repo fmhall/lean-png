@@ -36,18 +36,23 @@ theorem parseChunk_offset_bounded (data : ByteArray) (offset : Nat)
     result.offset ≤ data.size := by
   unfold parseChunk at h
   simp only [bind, Except.bind] at h
-  split at h <;> simp only [Except.ok.injEq] at h
-  -- First guard passed: ¬(offset + 12 > data.size), so offset + 12 ≤ data.size
-  rename_i hguard1
-  split at h <;> simp only [Except.ok.injEq] at h
-  -- Second guard passed: ¬(crcOffset + 4 > data.size)
-  rename_i hguard2
-  split at h <;> simp only [Except.ok.injEq] at h
-  -- CRC check passed
-  rename_i hguard3
-  -- Extract the offset from the result
-  have := h.2
-  omega
+  split at h
+  · contradiction
+  · rename_i hguard1
+    split at h
+    · contradiction
+    · rename_i hguard2
+      split at h
+      · contradiction
+      · rename_i hguard3
+        split at h
+        · contradiction
+        · split at h
+          · contradiction
+          · split at h
+            · contradiction
+            · simp only [pure, Except.pure, Except.ok.injEq] at h
+              subst h; dsimp only []; omega
 
 /-- A successful `parseChunk` always advances past the input offset. -/
 theorem parseChunk_offset_advances (data : ByteArray) (offset : Nat)
@@ -56,14 +61,23 @@ theorem parseChunk_offset_advances (data : ByteArray) (offset : Nat)
     result.offset > offset := by
   unfold parseChunk at h
   simp only [bind, Except.bind] at h
-  split at h <;> simp only [Except.ok.injEq] at h
-  rename_i hguard1
-  split at h <;> simp only [Except.ok.injEq] at h
-  rename_i hguard2
-  split at h <;> simp only [Except.ok.injEq] at h
-  rename_i hguard3
-  have := h.2
-  omega
+  split at h
+  · contradiction
+  · rename_i hguard1
+    split at h
+    · contradiction
+    · rename_i hguard2
+      split at h
+      · contradiction
+      · rename_i hguard3
+        split at h
+        · contradiction
+        · split at h
+          · contradiction
+          · split at h
+            · contradiction
+            · simp only [pure, Except.pure, Except.ok.injEq] at h
+              subst h; dsimp only []; omega
 
 /-! ## Signature bounds -/
 
@@ -74,7 +88,7 @@ theorem validateSignature_implies_size (data : ByteArray)
   unfold validateSignature at h
   split at h
   case isTrue hsz => exact hsz
-  case isFalse => simp at h
+  case isFalse => contradiction
 
 /-! ## Scanline bounds -/
 
@@ -84,6 +98,7 @@ theorem scanlineBytes_le (ihdr : IHDRInfo) :
     ihdr.scanlineBytes ≤
       IHDRInfo.channels ihdr.colorType * ihdr.bitDepth.toNat * ihdr.width.toNat := by
   unfold IHDRInfo.scanlineBytes
+  simp only []
   omega
 
 /-- Under a reasonable width constraint, `scanlineBytes` fits in 31 bits.
@@ -110,8 +125,9 @@ theorem extractRow_inbounds (pixels : ByteArray) (width : UInt32)
   have h2 : (r + 1) * (width.toNat * 4) ≤ height_nat * (width.toNat * 4) :=
     Nat.mul_le_mul_right _ h1
   rw [Nat.add_mul] at h2; simp only [Nat.one_mul] at h2
-  rw [show width.toNat * height_nat * 4 = height_nat * (width.toNat * 4) from by ring]
-  exact h2
+  have : width.toNat * height_nat * 4 = height_nat * (width.toNat * 4) := by
+    rw [Nat.mul_comm (width.toNat) height_nat, Nat.mul_assoc]
+  omega
 
 /-- Each row in the decompressed IDAT data starts at a valid offset.
     Row `r` starts at `r * rowStride` where `rowStride = 1 + scanlineBytes`,
