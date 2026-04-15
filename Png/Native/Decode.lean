@@ -138,6 +138,22 @@ where
     else acc
   termination_by pixels.size - i
 
+/-- Unpack sub-byte samples (1, 2, or 4 bits) or return an error for unsupported depths. -/
+private def unpackSubByteOrError (rawPixels : ByteArray) (width height : Nat)
+    (bitDepth : UInt8) (label : String) : Except String ByteArray :=
+  if _h : bitDepth = 1 then
+    pure (unpackSubByte rawPixels width height 1 (Or.inl rfl))
+  else if _h : bitDepth = 2 then
+    pure (unpackSubByte rawPixels width height 2 (Or.inr (Or.inl rfl)))
+  else if _h : bitDepth = 4 then
+    pure (unpackSubByte rawPixels width height 4 (Or.inr (Or.inr rfl)))
+  else .error s!"unsupported bit depth {bitDepth} for {label}"
+
+/-- Optionally apply tRNS color-key transparency after conversion to RGBA. -/
+private def applyTrnsOpt (rgba : ByteArray) (trns : Option TRNSInfo)
+    (bitDepth : UInt8) : ByteArray :=
+  match trns with | some t => applyTrnsKey rgba t bitDepth | none => rgba
+
 /-- Convert raw unfiltered pixel data to RGBA 8-bit format based on color type and bit depth.
     For palette images, requires a PLTE chunk and optional tRNS chunk.
     For grayscale/RGB with tRNS, applies color-key transparency. -/
@@ -147,53 +163,22 @@ def convertToRGBA (rawPixels : ByteArray) (colorType : ColorType) (bitDepth : UI
   match colorType, bitDepth with
   | .rgba, 8 => pure rawPixels
   | .rgba, 16 => pure (rgba16ToRGBA rawPixels)
-  | .rgb, 8 =>
-    let rgba := rgbToRGBA rawPixels
-    pure (match trns with | some t => applyTrnsKey rgba t 8 | none => rgba)
-  | .rgb, 16 =>
-    let rgba := rgb16ToRGBA rawPixels
-    pure (match trns with | some t => applyTrnsKey rgba t 16 | none => rgba)
-  | .grayscale, 8 =>
-    let rgba := grayscaleToRGBA rawPixels
-    pure (match trns with | some t => applyTrnsKey rgba t 8 | none => rgba)
-  | .grayscale, 16 =>
-    let rgba := grayscale16ToRGBA rawPixels
-    pure (match trns with | some t => applyTrnsKey rgba t 16 | none => rgba)
+  | .rgb, 8 => pure (applyTrnsOpt (rgbToRGBA rawPixels) trns 8)
+  | .rgb, 16 => pure (applyTrnsOpt (rgb16ToRGBA rawPixels) trns 16)
+  | .grayscale, 8 => pure (applyTrnsOpt (grayscaleToRGBA rawPixels) trns 8)
+  | .grayscale, 16 => pure (applyTrnsOpt (grayscale16ToRGBA rawPixels) trns 16)
   | .grayscaleAlpha, 8 => pure (grayAlphaToRGBA rawPixels)
   | .grayscaleAlpha, 16 => pure (grayAlpha16ToRGBA rawPixels)
-  | .grayscale, bd =>
-    if _hbd : bd = 1 then
-      let unpacked := unpackSubByte rawPixels width height 1 (Or.inl rfl)
-      let scaled := scaleSubByte unpacked 1
-      let rgba := grayscaleToRGBA scaled
-      pure (match trns with | some t => applyTrnsKey rgba t 1 | none => rgba)
-    else if _hbd : bd = 2 then
-      let unpacked := unpackSubByte rawPixels width height 2 (Or.inr (Or.inl rfl))
-      let scaled := scaleSubByte unpacked 2
-      let rgba := grayscaleToRGBA scaled
-      pure (match trns with | some t => applyTrnsKey rgba t 2 | none => rgba)
-    else if _hbd : bd = 4 then
-      let unpacked := unpackSubByte rawPixels width height 4 (Or.inr (Or.inr rfl))
-      let scaled := scaleSubByte unpacked 4
-      let rgba := grayscaleToRGBA scaled
-      pure (match trns with | some t => applyTrnsKey rgba t 4 | none => rgba)
-    else .error s!"unsupported bit depth {bd} for grayscale"
+  | .grayscale, bd => do
+    let unpacked ← unpackSubByteOrError rawPixels width height bd "grayscale"
+    pure (applyTrnsOpt (grayscaleToRGBA (scaleSubByte unpacked bd.toNat)) trns bd)
   | .palette, bd =>
     match plte with
     | none => .error "palette color type requires PLTE chunk"
-    | some plteInfo =>
-      if bd == 8 then
-        pure (expandPalette rawPixels plteInfo trns)
-      else if _hbd : bd = 1 then
-        let unpacked := unpackSubByte rawPixels width height 1 (Or.inl rfl)
-        pure (expandPalette unpacked plteInfo trns)
-      else if _hbd : bd = 2 then
-        let unpacked := unpackSubByte rawPixels width height 2 (Or.inr (Or.inl rfl))
-        pure (expandPalette unpacked plteInfo trns)
-      else if _hbd : bd = 4 then
-        let unpacked := unpackSubByte rawPixels width height 4 (Or.inr (Or.inr rfl))
-        pure (expandPalette unpacked plteInfo trns)
-      else .error s!"unsupported bit depth {bd} for palette"
+    | some plteInfo => do
+      let pixels ← if bd == 8 then pure rawPixels
+        else unpackSubByteOrError rawPixels width height bd "palette"
+      pure (expandPalette pixels plteInfo trns)
   | _, _ => .error s!"unsupported color type / bit depth combination"
 
 /-- Compute the scanline byte count for a sub-image pass.
