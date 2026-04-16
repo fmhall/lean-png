@@ -155,7 +155,7 @@ static lean_obj_res decode_png_common(png_structp png, png_infop info) {
     if (color_type == PNG_COLOR_TYPE_RGB ||
         color_type == PNG_COLOR_TYPE_GRAY ||
         color_type == PNG_COLOR_TYPE_PALETTE)
-        png_set_filler(png, 0xFF, PNG_FILLER_AFTER);
+        png_set_add_alpha(png, 0xFF, PNG_FILLER_AFTER);
 
     png_read_update_info(png, info);
 
