@@ -6,6 +6,7 @@ import PngTest.Roundtrip
 import PngTest.Interlace
 import PngTest.ColorConvert
 import PngTest.NativeDecode
+import PngTest.Fuzz
 
 /-!
 # PNG Test Suite
@@ -59,6 +60,12 @@ def main : IO UInt32 := do
     PngTest.NativeDecode.runAll
   catch e =>
     IO.eprintln s!"NativeDecode tests failed: {e}"
+    failures := failures + 1
+  IO.println ""
+  try
+    PngTest.Fuzz.runAll
+  catch e =>
+    IO.eprintln s!"Fuzz tests failed: {e}"
     failures := failures + 1
   IO.println ""
   if !(← PngTest.Conformance.runAll) then failures := failures + 1
