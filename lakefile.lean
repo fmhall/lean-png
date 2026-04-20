@@ -62,3 +62,6 @@ lean_exe test where
 
 lean_exe bench where
   root := `PngBench
+
+lean_exe fuzz where
+  root := `PngFuzz
