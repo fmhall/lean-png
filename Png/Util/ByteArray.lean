@@ -20,13 +20,6 @@ theorem ByteArray.ext_getElem! (a b : ByteArray) (hs : a.size = b.size)
     have := hg i hi
     rw [getElem!_pos a i hi, getElem!_pos b i hi2] at this; exact this
 
-/-- A ByteArray of size 0 is empty. -/
-theorem ByteArray.eq_empty_of_size (z : ByteArray) (hz : z.size = 0) :
-    z = ByteArray.empty := by
-  apply ByteArray.ext
-  simp only [ByteArray.data_empty]
-  exact Array.eq_empty_of_size_eq_zero hz
-
 /-! ## getElem! bridging -/
 
 /-- `getElem!` equals `getElem` when the index is in bounds. -/

@@ -8,7 +8,7 @@ Per-session details are in `progress/`.
 - **Phase**: Phases 1-6 complete, phase 7 next
 - **Toolchain**: leanprover/lean4:v4.29.0-rc4
 - **Sorries**: 0
-- **Theorems**: 333 (all proven)
+- **Theorems**: 332 (all proven)
 - **Source files**: 29 (19 Png/ + 9 PngTest/ + PngBench.lean)
 - **Lines of Lean**: ~10,200
 - **Tests**: 180 passing (162 valid PngSuite + 14 corrupt rejected)

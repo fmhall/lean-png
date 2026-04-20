@@ -8,7 +8,7 @@ type-checks, encoding followed by decoding recovers your original image.
 
 Built on [lean-zip](https://github.com/kim-em/lean-zip)'s verified
 DEFLATE/CRC32/Adler32. 29 source files, ~10,200 lines of Lean,
-333 proven theorems, **zero `sorry`**, 180 tests. All 176 PngSuite
+332 proven theorems, **zero `sorry`**, 180 tests. All 176 PngSuite
 images handled correctly: 162 valid images decode natively and match
 libpng pixel-for-pixel; 14 corrupt images correctly rejected.
 
@@ -305,7 +305,7 @@ exact zlib_decompressSingle_compress data level hsize
 
 ## Project status
 
-**29 source files. ~10,200 lines of Lean. 333 theorems. Zero `sorry`.
+**29 source files. ~10,200 lines of Lean. 332 theorems. Zero `sorry`.
 180 tests. Both capstones proven (non-interlaced + Adam7). All 176
 PngSuite images handled (162 decoded, 14 corrupt rejected).**
 
@@ -350,6 +350,34 @@ The bottleneck is lean-zip's native DEFLATE compression (95% of encode
 time), not PNG-specific code. Filter/unfilter is already fast at 30ms
 for 1MP. Optimization via generational refinement (Track D in PLAN.md)
 would target the compression layer.
+
+## Differential fuzzing
+
+`PngFuzz.lean` is a differential fuzz harness that generates random PNG
+byte streams and decodes each one through both the native Lean decoder
+and libpng via FFI, comparing the results. The core invariant:
+
+> If libpng successfully decodes a byte stream, the native decoder must
+> also succeed with pixel-identical output.
+
+Three input-generation strategies are mixed: 50% valid roundtrip
+(encode a random image, feed the bytes back in), 30% mutated PNG (take
+a valid PNG and flip random bytes), 20% pure random bytes. A divergence
+— FFI accepts, native rejects, or the two produce different pixels —
+fails the run.
+
+```bash
+lake exe fuzz                  # 100,000 iterations, default seed
+lake exe fuzz 1000000          # 1M iterations
+lake exe fuzz 1000000 42       # 1M iterations, seed 42
+```
+
+This follows the same recipe that ["Who Watches the Watchers?"][watchers]
+used to fuzz lean-zip — verification rules out bugs in the proven code,
+but a differential fuzzer catches divergence from the reference and
+bugs in the unverified FFI glue.
+
+[watchers]: https://kirancodes.me/posts/log-who-watches-the-watchers.html
 
 ## Development methodology
 

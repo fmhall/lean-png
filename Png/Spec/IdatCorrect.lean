@@ -125,7 +125,6 @@ private theorem extractIdatData_push_idat (arr : Array PngChunk) (data : ByteArr
   unfold extractIdatData
   exact extractIdatData_go_push_idat arr data 0 ByteArray.empty (by omega)
 
--- ByteArray.eq_empty_of_size is now in Png.Util.ByteArray
 
 /-! ## Extraction correctness -/
 
@@ -267,7 +266,7 @@ theorem extractIdatData_splitIntoIdatChunks (zlibData : ByteArray)
     simp only [extractIdatData_singleton]
     have hsz : zlibData.size = 0 := by
       revert h; simp only [beq_iff_eq]; exact id
-    exact (ByteArray.eq_empty_of_size zlibData hsz).symm
+    exact (ByteArray.size_eq_zero_iff.mp hsz).symm
   case isFalse h =>
     split
     case isTrue hcs0 => exact absurd hcs0 (by omega)
