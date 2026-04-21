@@ -28,6 +28,7 @@ import Png.Spec.PngValid
 import Png.Spec.InterlacedRoundtripCorrect
 import Png.Spec.OverflowSafe
 import Png.Spec.DecompBombSafe
+import Png.Spec.SecurityClaims
 
 /-!
 # lean-png
